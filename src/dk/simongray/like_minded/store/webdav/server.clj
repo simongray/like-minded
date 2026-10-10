@@ -20,25 +20,6 @@
             [dk.simongray.wary-fetch.url :as url])
   (:import [java.io ByteArrayInputStream InputStream]))
 
-(defn- body-bytes
-  "The bytes of the `body` of a Ring request, which is a string, bytes, a
-  stream or nothing, or nil when it holds more than `max-bytes`."
-  [body max-bytes]
-  (let [b (cond
-            (nil? body)    (bytes/of [])
-            (string? body) (bytes/encode body)
-            (bytes? body)  body
-            :else          (.readNBytes ^InputStream body
-                                        (int (inc max-bytes))))]
-    (when (<= (bytes/length b) max-bytes)
-      b)))
-
-(defn- body-text
-  "The text of the `body` of a Ring request, read within `max-bytes`, of
-  UTF-8."
-  [body max-bytes]
-  (some-> (body-bytes body max-bytes) bytes/decode))
-
 (defn- quoted
   [version]
   (str "\"" version "\""))
@@ -218,6 +199,25 @@
                   binary? (ByteArrayInputStream. ^bytes body)
                   :else   body)}
       (if name (not-found) (not-allowed store nil)))))
+
+(defn ^:no-doc body-bytes
+  "The bytes of the `body` of a Ring request, which is a string, bytes, a
+  stream or nothing, or nil when it holds more than `max-bytes`."
+  [body max-bytes]
+  (let [b (cond
+            (nil? body)    (bytes/of [])
+            (string? body) (bytes/encode body)
+            (bytes? body)  body
+            :else          (.readNBytes ^InputStream body
+                                        (int (inc max-bytes))))]
+    (when (<= (bytes/length b) max-bytes)
+      b)))
+
+(defn- body-text
+  "The text of the `body` of a Ring request, read within `max-bytes`, of
+  UTF-8."
+  [body max-bytes]
+  (some-> (body-bytes body max-bytes) bytes/decode))
 
 (defn- put-document
   "The answer to a put of the document `name` in `store` from the request

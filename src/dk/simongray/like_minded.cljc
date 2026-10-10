@@ -12,8 +12,8 @@
   :report. It has :partial? when the states are changes since the cursor
   rather than whole states. A push returns the next :cursor and a
   :report, and a :state when it learned more while writing. Both take the
-  instant of the sync and never read a clock. Any store of
-  dk.simongray.like-minded.store becomes a backend through backend.
+  instant of the sync and never read a clock. The function backend makes
+  a backend of any store of dk.simongray.like-minded.store.
 
   The options of the state say what the state is. Give the same ones to a
   backend, to sync!, to reconcile and to the functions of
@@ -56,6 +56,16 @@
     {:state  (state/settled (state/merged state states opts) states at opts)
      :report report}))
 
+(defn- with-extras
+  "The result `pushed` of a push of `state` to `store`, once the extra
+  documents of `opts` are put beside it, unless the push ended in a
+  conflict. They're those of the state that the push learned, if any."
+  [store opts state {:keys [report] :as pushed}]
+  (if (some #(= :sync/conflict (:id %)) report)
+    pushed
+    (async/then (extras/put! store opts (:state pushed state) (:cursor pushed))
+                #(assoc pushed :cursor %))))
+
 (defn backend
   "A backend over `store`, a document store of dk.simongray.like-minded.store,
   with the options of the state and the other `opts` below:
@@ -82,53 +92,42 @@
 
   An extra document is written when it changed, and can't have the
   extension of the codec, since it would be read as a device's."
-  [store {:keys [strategy direction codec] :or {codec document/edn-codec}
-          :as   opts}]
+  [store {:keys [strategy direction] :as opts}]
   {:pre [(map? opts)]}
-  (state/functions opts)
-  (let [document  (:document opts (str "state" (:extension codec)))
-        strategy  (or strategy (if (:list store) :per-device :shared))
-        direction (or direction (if (:put store) :both :pull))
-        pull?     (not= :push direction)
-        push?     (not= :pull direction)]
+  ;; throws now for options without a CRDT, rather than at every pull
+  (state/crdt-of opts)
+  (let [strategy      (or strategy (if (:list store) :per-device :shared))
+        direction     (or direction (if (:put store) :both :pull))
+        opts          (update opts :document
+                              #(or % (str "state" (document/extension opts))))
+        [pull! push!] (case strategy
+                        :per-device [per-device/pull! per-device/push!]
+                        :shared     [shared/pull! shared/push!])
+        retired       (fn [state]
+                        (diagnostics/describe {:id     :sync/retired-device
+                                               :device (:device state)}))]
     (when (and (= :per-device strategy) (not (:list store)))
       (throw (ex-info "A store without :list cannot hold a document per device"
                       {:name (:name store)})))
-    (when (and push? (not (:put store)))
+    (when (and (not= :pull direction) (not (:put store)))
       (throw (ex-info "A store without :put can only be pulled from"
                       {:name (:name store)})))
     {:name (or (:name opts) (:name store))
      :pull (fn [state cursor at]
-             (if pull?
-               (case strategy
-                 :per-device (per-device/pull! store opts state cursor at)
-                 :shared     (shared/pull! store document opts cursor at))
-               {:states [] :cursor cursor :report []}))
+             (if (= :push direction)
+               {:states [] :cursor cursor :report []}
+               (pull! store opts state cursor at)))
      :push (fn [state cursor at]
              (cond
-               (not push?)
+               (= :pull direction)
                {:cursor cursor}
 
                (crdt/retired? state (:device state))
-               {:cursor cursor
-                :report [(diagnostics/describe {:id     :sync/retired-device
-                                                :device (:device state)})]}
+               {:cursor cursor :report [(retired state)]}
 
                :else
-               (async/then
-                (case strategy
-                  :per-device
-                  (per-device/push! store opts state cursor at)
-
-                  :shared
-                  (shared/push! store document opts state cursor at))
-                (fn [{:keys [report] :as pushed}]
-                  (if (some #(= :sync/conflict (:id %)) report)
-                    pushed
-                    (let [latest (:state pushed state)]
-                      (async/then
-                       (extras/put! store opts latest (:cursor pushed))
-                       #(assoc pushed :cursor %))))))))}))
+               (async/then (push! store opts state cursor at)
+                           #(with-extras store opts state %))))}))
 
 (def default-cadence
   "How many seconds to wait before syncing again:
@@ -277,22 +276,22 @@
   and the same name twice throws."
   [state backends {:keys [at cursors] :as opts}]
   {:pre [(map? opts)]}
-  (state/functions opts)
   (when-let [twice (seq (for [[name n] (frequencies (map :name backends))
                               :when (< 1 n)]
                           name))]
     (throw (ex-info (str "The backends of one sync need distinct names, "
                          "and these are not: " (pr-str twice))
                     {:names twice})))
-  (let [at    (or at (time/now))
-        pull! (fn [{:keys [pull name]}]
-                (async/attempt #(pull state (get cursors name) at)))]
+  (let [problem-of (:problem (state/crdt-of opts))
+        at         (or at (time/now))
+        pull!      (fn [{:keys [pull name]}]
+                     (async/attempt #(pull state (get cursors name) at)))]
     (async/then
      (async/all (map pull! backends))
      (fn [results]
        (let [so-far    (pulled state backends results at opts)
              merged    (:state so-far)
-             problem   ((:problem (state/functions opts)) merged)
+             problem   (problem-of merged)
              push!     (fn [[{:keys [push]} pull]]
                          (if problem
                            {:cursor (:cursor pull)}

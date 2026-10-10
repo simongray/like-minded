@@ -6,14 +6,14 @@
             [dk.simongray.wary-fetch.async :as async]))
 
 (defn pull!
-  "The pull from `store` for `state` at `at`: the documents that changed
-  since `cursor`, fetched at once and read with the options of the state
+  "Pull the documents from `store` that changed since `cursor`, for `state`
+  at `at`, and give their states, read with the options of the state
   `opts`.
 
   The documents are those of the listing with the extension of the codec,
-  and one without a version there is always fetched. The report notes
-  when this device's own document changed under it, and when the
-  document is gone from the store, the push writes it again."
+  fetched at once, and one without a version there is always fetched. The
+  report notes when this device's own document changed under it, and
+  when the document is gone from the store, the push writes it again."
   [{:keys [list fetch] :as store} opts state {:keys [versions] :as cursor} at]
   (async/then
    (list)
@@ -55,8 +55,8 @@
                        changed? (conj (diagnostics/describe shared)))})))))))
 
 (defn push!
-  "The push of `state` to `store` at `at`, with the options of the state
-  `opts` and their :app, and `cursor`.
+  "Push `state` to `store` at `at`, with the options of the state `opts`
+  and their :app, and give a map of the cursor that follows `cursor`.
 
   It writes this device's document when the state changed since the
   cursor, and deletes the documents of retired devices."

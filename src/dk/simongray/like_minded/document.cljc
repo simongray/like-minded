@@ -1,6 +1,6 @@
 (ns dk.simongray.like-minded.document
-  "The documents of a sync: the envelope around the state of a device,
-  encoded and decoded with the options of the state.
+  "The documents of a sync: their names, and the envelope around the state
+  of a device, encoded and decoded with the options of the state.
 
   An envelope is a map like this:
 
@@ -46,6 +46,24 @@
   that its device's clock is ahead: a minute, in milliseconds."
   60000)
 
+(defn extension
+  "The extension of the names of the documents, by the codec of the options
+  of the state `opts`."
+  [opts]
+  (:extension (:codec opts edn-codec)))
+
+(defn name-of
+  "The name of the document that the device `device` writes, with the
+  options of the state `opts`."
+  [device opts]
+  (str device (extension opts)))
+
+(defn device-document?
+  "Whether the listed document `doc` is one that a device writes, by the
+  extension that the options of the state `opts` give."
+  [doc opts]
+  (str/ends-with? (:name doc) (extension opts)))
+
 (defn encode
   "The document of `state` written at `at` with the options of the state
   `opts`, encoded by their codec.
@@ -63,6 +81,13 @@
                     app  (assoc :app app)
                     kind (assoc :kind kind))]
      ((:encode codec) envelope))))
+
+(defn for-device
+  "The document that the device of `state` writes at `at`, with the options
+  of the state `opts` and their :app, as a map of its :name and :body."
+  [state at opts]
+  {:name (name-of (:device state) opts)
+   :body (encode state at opts)})
 
 (defn same-kind?
   "Whether the `envelope` holds the kind of state of the options `opts`,
@@ -96,7 +121,7 @@
                       {:type ::malformed})))
     (when-let [problem (and (same-kind? envelope opts)
                             (<= (:version envelope) (:version opts version))
-                            ((:problem (state/functions opts))
+                            ((:problem (state/crdt-of opts))
                              (:state envelope)))]
       (throw (ex-info (str "The document holds a state that can't be "
                            "merged: " problem)
@@ -160,27 +185,8 @@
     format, which is left out
   - :sync/clock-skew, a device whose clock is ahead of this one
 
-  It throws when `opts` give no CRDT."
+  It throws when `opts` give no CRDT, rather than report every document
+  as one that doesn't read."
   [fetched at opts]
-  (state/functions opts)
+  (state/crdt-of opts)
   (reduce #(read-one %1 %2 at opts) {:states [] :report []} fetched))
-
-(defn name-of
-  "The name of the document that the device `device` writes, with the
-  extension of the codec of the options of the state `opts`."
-  [device {:keys [codec] :or {codec edn-codec} :as opts}]
-  (str device (:extension codec)))
-
-(defn for-device
-  "The document that the device of `state` writes at `at`, with the options
-  of the state `opts` and their :app, as a map of its :name and :body."
-  [state at opts]
-  (let [opts (select-keys opts [:app :kind :version :codec])]
-    {:name (name-of (:device state) opts)
-     :body (encode state at opts)}))
-
-(defn device-document?
-  "Whether the listed document `doc` is one that a device writes, by the
-  extension of the codec of the options of the state `opts`."
-  [doc {:keys [codec] :or {codec edn-codec} :as opts}]
-  (str/ends-with? (:name doc) (:extension codec)))
