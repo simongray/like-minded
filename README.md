@@ -9,9 +9,10 @@ already have, e.g. a folder that iCloud, Dropbox or Syncthing syncs, a
 WebDAV server such as Nextcloud, or the browser's own storage. There's no
 sync server to run.
 
-It's the companion of [mind-meld](https://github.com/simongray/mind-meld):
-mind-meld merges the states of two devices without conflict, and
-like-minded gets the states from each device to the others.
+**NOTE:** It's the companion of
+[mind-meld](https://github.com/simongray/mind-meld): mind-meld merges the
+states of two devices without conflict, and like-minded gets the states
+from each device to the others.
 
 - **Storage the user has.** There are stores for a folder, on the JVM, in
   Node and through the browser's folder picker, for a WebDAV collection,
