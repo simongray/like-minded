@@ -1,4 +1,4 @@
-(ns dk.simongray.like-minded.store.file-test
+(ns dk.simongray.like-minded.store.folder-test
   "A folder as a document store: the store's contract on a temporary
   folder of each platform, and two devices kept in step through it. In
   ClojureScript also the files of an input, the permissions, and the
@@ -9,7 +9,7 @@
             [dk.simongray.like-minded.bytes :as bytes]
             #?(:cljs [dk.simongray.like-minded.document :as document])
             [dk.simongray.like-minded.store :as store]
-            [dk.simongray.like-minded.store.file :as file]
+            [dk.simongray.like-minded.store.folder :as folder]
             [dk.simongray.like-minded.test-support :refer [t0 t1 t2 t3 note text with-notes run same?
                                                            #?(:clj with-temp-dir)]]
             [dk.simongray.wary-fetch.async :as async]))
@@ -62,7 +62,7 @@
 (deftest a-folder-store
   (let [dir     (atom nil)
         version (atom nil)
-        call    (fn [k & args] (apply (k (file/store @dir)) args))
+        call    (fn [k & args] (apply (k (folder/store @dir)) args))
         failed? #(async/then (async/attempt %) :error)]
     (run #(async/then (temp-folder!) (fn [d] (reset! dir d)))
          #(async/then (call :list) (fn [docs] (is (= [] docs))))
@@ -102,7 +102,7 @@
 (deftest a-folder-checked
   (let [dir (atom nil)]
     (run #(async/then (temp-folder!) (fn [d] (reset! dir d)))
-         #(async/then (store/check! (file/store @dir))
+         #(async/then (store/check! (folder/store @dir))
                       (fn [{:keys [ok? checks]}]
                         (is ok? (pr-str checks))
                         (is (every? :ok? checks))))
@@ -113,7 +113,7 @@
   (let [dir     (atom nil)
         phone   (atom nil)
         laptop  (atom nil)
-        backend #(sync/backend (file/store @dir) with-notes)]
+        backend #(sync/backend (folder/store @dir) with-notes)]
     (run #(async/then (temp-folder!) (fn [d] (reset! dir d)))
          #(async/then (sync/sync! (note {:device "phone"} "milk" "Buy milk" t0) [(backend)] (assoc with-notes :at t1))
                       (fn [step] (reset! phone step)))
@@ -132,7 +132,7 @@
    (deftest a-folder-made-on-the-first-write
      (with-temp-dir
        (fn [dir]
-         (let [{:keys [put list]} (file/store (io/file dir "sync"))]
+         (let [{:keys [put list]} (folder/store (io/file dir "sync"))]
            (is (= [] (list)) "a folder that isn't there yet lists nothing")
            (put "a.edn" "one" {})
            (is (.isDirectory (io/file dir "sync"))))))))
@@ -141,7 +141,7 @@
    (deftest writes-that-race-or-fail
      (with-temp-dir
        (fn [dir]
-         (let [{:keys [put fetch]} (file/store dir)]
+         (let [{:keys [put fetch]} (folder/store dir)]
            (put "state.edn" "0" {})
            (testing "of two puts on one version from two threads, one wins"
              (is (every? #(= 1 %)
@@ -174,7 +174,7 @@
            files  [(picked "Notes/laptop.edn" (document/encode laptop t2))
                    (picked "Notes/notes.txt" "not a document")
                    (picked "Notes/old/phone.edn" "in a folder of the folder")]
-           s      (file/store files)]
+           s      (folder/store files)]
        (run #(is (= "Notes" (:name s)) "the picked folder names the store")
             #(is (nil? (:put s)) "read only")
             #(is (nil? (:delete s)))
@@ -200,27 +200,27 @@
    (deftest permissions
      (let [asked (atom [])
            ask   (fn [answer] (fn [opts] (swap! asked conj (.-mode opts)) (js/Promise.resolve answer)))]
-       (run #(async/then (file/query-permission! (handle {:queryPermission (ask "prompt")}))
+       (run #(async/then (folder/query-permission! (handle {:queryPermission (ask "prompt")}))
                          (fn [answer] (is (= :prompt answer))))
-            #(async/then (file/request-permission! (handle {:requestPermission (ask "granted")}))
+            #(async/then (folder/request-permission! (handle {:requestPermission (ask "granted")}))
                          (fn [answer] (is (= :granted answer))))
             #(is (= ["readwrite" "readwrite"] @asked))
-            #(async/then (async/all [(file/query-permission! (handle {}))
-                                     (file/request-permission! "/tmp/notes")
-                                     (file/query-permission! [])])
+            #(async/then (async/all [(folder/query-permission! (handle {}))
+                                     (folder/request-permission! "/tmp/notes")
+                                     (folder/query-permission! [])])
                          (fn [answers] (is (= [:granted :granted :granted] answers) "nothing to ask for")))))))
 
 #?(:cljs
    (deftest failures-that-the-user-can-fix
      (let [refusing (fn [error] (handle {:values (fn [] #js {:next #(js/Promise.reject (js/DOMException. "" error))})}))
            type-of  (fn [s f] (async/then (async/attempt #(f s)) (comp :type ex-data :error)))]
-       (run #(async/then (type-of (file/store (refusing "NotAllowedError")) (fn [s] ((:list s))))
-                         (fn [t] (is (= ::file/not-allowed t))))
-            #(async/then (type-of (file/store (refusing "NotFoundError")) (fn [s] ((:list s))))
-                         (fn [t] (is (= ::file/gone t))))
-            #(async/then (type-of (file/store (handle {})) (fn [s] ((:fetch s) "a.edn" {})))
+       (run #(async/then (type-of (folder/store (refusing "NotAllowedError")) (fn [s] ((:list s))))
+                         (fn [t] (is (= ::folder/not-allowed t))))
+            #(async/then (type-of (folder/store (refusing "NotFoundError")) (fn [s] ((:list s))))
+                         (fn [t] (is (= ::folder/gone t))))
+            #(async/then (type-of (folder/store (handle {})) (fn [s] ((:fetch s) "a.edn" {})))
                          (fn [t] (is (nil? t) "a document that isn't there is no failure")))
             (fn []
               (when-not (some-> js/globalThis .-FileSystemFileHandle .-prototype .-createWritable)
-                (async/then (type-of (file/store (handle {})) (fn [s] ((:put s) "a.edn" "x" {})))
-                            (fn [t] (is (= ::file/read-only t) "a platform that can't write")))))))))
+                (async/then (type-of (folder/store (handle {})) (fn [s] ((:put s) "a.edn" "x" {})))
+                            (fn [t] (is (= ::folder/read-only t) "a platform that can't write")))))))))

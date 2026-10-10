@@ -57,15 +57,15 @@ state say what it is. Give them to the backend and to each sync:
 
 ```clojure
 (require '[dk.simongray.like-minded :as like-minded]
-         '[dk.simongray.like-minded.store.file :as file]
+         '[dk.simongray.like-minded.store.folder :as folder]
          '[dk.simongray.mind-meld :as crdt])
 
 (def opts
   {:schema {:notes {:depth 1 :compact? true}}  ; the mind-meld schema
    :kind   "my-notes"})                         ; what the documents hold
 
-(def folder
-  (like-minded/backend (file/store "/Users/me/Dropbox/my-notes") opts))
+(def dropbox
+  (like-minded/backend (folder/store "/Users/me/Dropbox/my-notes") opts))
 
 (def phone
   (crdt/write {:device "phone"}
@@ -74,7 +74,7 @@ state say what it is. Give them to the backend and to each sync:
               #inst "2026-10-10T09:00:00Z"))
 
 (def step
-  (like-minded/sync! phone [folder] opts))
+  (like-minded/sync! phone [dropbox] opts))
 ```
 
 The step writes `phone.edn` into the folder. A laptop that syncs through
@@ -87,7 +87,7 @@ the same folder writes `laptop.edn`, and merges in the phone's notes:
               (constantly {:text "Buy bread"})
               #inst "2026-10-10T09:05:00Z"))
 
-(-> (like-minded/sync! laptop [folder] opts) :state :notes keys)
+(-> (like-minded/sync! laptop [dropbox] opts) :state :notes keys)
 ;; => ("bread" "milk")
 ```
 
@@ -95,7 +95,7 @@ A step returns the merged `:state`, a `:report` of what it found, and the
 `:cursors` of the backends, which the next step of the device takes:
 
 ```clojure
-(like-minded/sync! (:state step) [folder] (assoc opts :cursors (:cursors step)))
+(like-minded/sync! (:state step) [dropbox] (assoc opts :cursors (:cursors step)))
 ```
 
 In ClojureScript, `sync!` returns a promise. Merge the `:state` of a step
@@ -111,7 +111,7 @@ A store is a map of functions over named documents with versions, and
 | Store | Namespace | Platform |
 |---|---|---|
 | A map in an atom | `store/memory` | all |
-| A folder | `store.file` | the JVM, Node, and a browser through `showDirectoryPicker` or the files of an input |
+| A folder | `store.folder` | the JVM, Node, and a browser through `showDirectoryPicker` or the files of an input |
 | A WebDAV collection | `store.webdav` | all |
 | An IndexedDB database | `store.indexeddb` | a browser |
 | Any store, encrypted | `store.encrypted` | all |
@@ -129,7 +129,7 @@ there's no key file to lose:
 ```clojure
 (require '[dk.simongray.like-minded.store.encrypted :as encrypted])
 
-(encrypted/store (file/store "/Users/me/Dropbox/my-notes")
+(encrypted/store (folder/store "/Users/me/Dropbox/my-notes")
                  "correct horse battery staple")
 ```
 

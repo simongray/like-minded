@@ -14,8 +14,8 @@
   The options of the state are those of dk.simongray.like-minded."
   (:require #?(:clj [clojure.edn :as edn] :cljs [cljs.reader :as edn])
             [clojure.string :as str]
+            [dk.simongray.like-minded.crdt :as crdt]
             [dk.simongray.like-minded.diagnostics :as diagnostics]
-            [dk.simongray.like-minded.state :as state]
             [dk.simongray.like-minded.time :as time]))
 
 (def version
@@ -121,7 +121,7 @@
                       {:type ::malformed})))
     (when-let [problem (and (same-kind? envelope opts)
                             (<= (:version envelope) (:version opts version))
-                            ((:problem (state/crdt-of opts))
+                            ((:problem (crdt/functions opts))
                              (:state envelope)))]
       (throw (ex-info (str "The document holds a state that can't be "
                            "merged: " problem)
@@ -188,5 +188,5 @@
   It throws when `opts` give no CRDT, rather than report every document
   as one that doesn't read."
   [fetched at opts]
-  (state/crdt-of opts)
+  (crdt/functions opts)
   (reduce #(read-one %1 %2 at opts) {:states [] :report []} fetched))

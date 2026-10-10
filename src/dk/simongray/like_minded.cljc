@@ -29,14 +29,14 @@
   - :codec, how a document is encoded, document/edn-codec by default
 
   A sync needs a :schema, or all three functions of a :crdt."
-  (:require [dk.simongray.like-minded.diagnostics :as diagnostics]
+  (:require [dk.simongray.like-minded.crdt :as crdt]
+            [dk.simongray.like-minded.diagnostics :as diagnostics]
             [dk.simongray.like-minded.document :as document]
             [dk.simongray.like-minded.extras :as extras]
             [dk.simongray.like-minded.per-device :as per-device]
             [dk.simongray.like-minded.shared :as shared]
-            [dk.simongray.like-minded.state :as state]
             [dk.simongray.like-minded.time :as time]
-            [dk.simongray.mind-meld :as crdt]
+            [dk.simongray.mind-meld :as mind-meld]
             [dk.simongray.wary-fetch.async :as async]))
 
 (defn reconcile
@@ -53,7 +53,7 @@
   [state fetched at opts]
   {:pre [(map? opts)]}
   (let [{:keys [states report]} (document/states fetched at opts)]
-    {:state  (state/settled (state/merged state states opts) states at opts)
+    {:state  (crdt/settled (crdt/merged state states opts) states at opts)
      :report report}))
 
 (defn- with-extras
@@ -95,7 +95,7 @@
   [store {:keys [strategy direction] :as opts}]
   {:pre [(map? opts)]}
   ;; throws now for options without a CRDT, rather than at every pull
-  (state/crdt-of opts)
+  (crdt/functions opts)
   (let [strategy      (or strategy (if (:list store) :per-device :shared))
         direction     (or direction (if (:put store) :both :pull))
         opts          (update opts :document
@@ -122,7 +122,7 @@
                (= :pull direction)
                {:cursor cursor}
 
-               (crdt/retired? state (:device state))
+               (mind-meld/retired? state (:device state))
                {:cursor cursor :report [(retired state)]}
 
                :else
@@ -205,7 +205,7 @@
                           (when-not (:partial? result)
                             (:states result)))
                         ok)]
-    {:state  (state/settled (state/merged state states opts) whole at opts)
+    {:state  (crdt/settled (crdt/merged state states opts) whole at opts)
      :ok     (vec ok)
      :report (-> []
                  (into (mapcat (comp :report second)) ok)
@@ -231,7 +231,7 @@
                       :when error]
                   (failure backend error))]
     {:state   (if (seq learned)
-                (state/settled (state/merged state learned opts)
+                (crdt/settled (crdt/merged state learned opts)
                                learned at opts)
                 state)
      :cursors (reduce cursor (or cursors {}) pushes)
@@ -282,7 +282,7 @@
     (throw (ex-info (str "The backends of one sync need distinct names, "
                          "and these are not: " (pr-str twice))
                     {:names twice})))
-  (let [problem-of (:problem (state/crdt-of opts))
+  (let [problem-of (:problem (crdt/functions opts))
         at         (or at (time/now))
         pull!      (fn [{:keys [pull name]}]
                      (async/attempt #(pull state (get cursors name) at)))]

@@ -1,9 +1,9 @@
 (ns ^:no-doc dk.simongray.like-minded.shared
   "The strategy of one shared document: every device fetches it, merges,
   and puts it on condition of the version it fetched."
-  (:require [dk.simongray.like-minded.diagnostics :as diagnostics]
+  (:require [dk.simongray.like-minded.crdt :as crdt]
+            [dk.simongray.like-minded.diagnostics :as diagnostics]
             [dk.simongray.like-minded.document :as document]
-            [dk.simongray.like-minded.state :as state]
             [dk.simongray.wary-fetch.async :as async]))
 
 (defn- hands-off
@@ -81,7 +81,7 @@
              (fn [doc]
                (let [named  (when doc [(assoc doc :name name)])
                      {:keys [states report]} (document/states named at opts)
-                     merged (state/merged state states opts)
+                     merged (crdt/merged state states opts)
                      marks  (hands-off report)
                      cursor (assoc cursor :version (:version doc))]
                  (if (seq marks)

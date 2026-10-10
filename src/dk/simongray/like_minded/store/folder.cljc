@@ -1,4 +1,4 @@
-(ns dk.simongray.like-minded.store.file
+(ns dk.simongray.like-minded.store.folder
   "A folder as a document store, e.g. one that a sync client mirrors.
 
   The folder can be a Git working tree, or a folder of iCloud Drive,
@@ -63,7 +63,7 @@
                (finally
                  (.unlock l))))
      :cljs (if-let [web-locks (some-> js/globalThis .-navigator .-locks)]
-             (.request web-locks (str "dk.simongray.like-minded.store.file/" k)
+             (.request web-locks (str "dk.simongray.like-minded.store.folder/" k)
                        (fn [_] (f)))
              (let [before  (get @locks k (js/Promise.resolve))
                    result  (.then before (fn [_] (f)))
