@@ -103,6 +103,33 @@ In ClojureScript, `sync!` returns a promise. Merge the `:state` of a step
 into the state as it is by then, since the user may have changed it
 during the step, and call `next-sync` for when to sync again.
 
+When to sync
+------------
+
+Call `sync!` when the app starts, when it goes to the background, after a
+series of changes, and when a file watcher or a service says that
+something changed. Run one step at a time, since a step that overlaps
+another can write an older state after a newer one. A file watcher also sees the writes of the step itself, so let
+such a call wait until the step ends.
+
+For when to sync again, give `next-sync` the `:at` of the last step,
+whether the state has `:changed?` since, and how many steps in a row had
+a backend that failed, as `:failures`:
+
+```clojure
+(like-minded/next-sync {:at #inst "2026-10-10T09:00:00Z" :changed? true}
+                       #inst "2026-10-10T09:00:03Z")
+;; => #inst "2026-10-10T09:00:10.000-00:00"
+```
+
+The waits of `default-cadence` are short after a change, long when
+nothing changed, and grow with each failure. Give waits of your own as
+the third argument.
+
+For control over the I/O, e.g. in a background task with a time budget,
+`reconcile` merges the documents that you fetch yourself, as the
+[reference](doc/reference.md#a-step) describes.
+
 Stores
 ------
 
@@ -136,6 +163,10 @@ there's no key file to lose:
 
 The passphrase can also be a function that asks the user for it.
 
+The [reference](doc/reference.md#the-stores) has the version token of
+each store and what it takes, and [Providers](doc/providers.md) lists
+where the common WebDAV servers and sync clients keep their folders.
+
 The options of a state
 ----------------------
 
@@ -153,7 +184,8 @@ The options of a state
 A backend also takes the `:app` to write into each document, an
 `:extra-documents-fn` that gives documents to write beside the state,
 e.g. for other apps to read, and the `:strategy` and `:direction` that
-it otherwise takes from the store.
+it otherwise takes from the store. The
+[reference](doc/reference.md#the-options) has the defaults of each.
 
 A backend of your own
 ---------------------
@@ -168,7 +200,9 @@ a `:pull` and a `:push`:
 ```
 
 A pull that gives only the changes since its cursor says so with
-`:partial?`, and they merge like any other state.
+`:partial?`, and they merge like any other state. The
+[reference](doc/reference.md#the-backend-contract) has the whole
+contract.
 
 Principles
 ----------
@@ -200,6 +234,11 @@ npm install                           # once, for the Node tests
 clojure -M:cljs compile test          # the tests in Node
 clojure -M:cljs compile browser-test  # for a browser, from target/browser-test
 ```
+
+Besides the tests of each store, generative tests have devices change a
+state at random and sync in random orders through a store, with either
+strategy. They check that the devices end in the same state, and that
+compaction then leaves no tombstone and changes nothing that a user sees.
 
 License
 -------
