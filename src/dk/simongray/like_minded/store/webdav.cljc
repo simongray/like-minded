@@ -118,9 +118,7 @@
   "The name of the document that `href` addresses: its last path segment,
   decoded."
   [href]
-  ;; a match may start only where a run of slashes starts: /+$ alone is
-  ;; tried again from every slash of a long run, quadratically
-  (-> (str/replace href #"(^|[^/])/+$" "$1")
+  (-> (url/without-trailing-slashes href)
       (str/split #"/")
       last
       url/percent-decode))
