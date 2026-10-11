@@ -143,11 +143,11 @@
   "When to sync again at `at`, after the last sync `step`, with the waits
   of `cadence`.
 
-  The wait depends on whether the local state has :changed? since the
-  step, and on how many :failures in a row it ended with. The result is
-  never before `at`, and without a step, it's `at`. The `cadence` goes
-  over the defaults. The library schedules nothing, so run the sync from
-  a timer of your own."
+  The wait depends on how many :failures in a row the step ended with,
+  and on whether the local state has :changed? since, which the step of
+  sync! doesn't know, so add it. The result is never before `at`, and
+  without a step, it's `at`. The `cadence` goes over the defaults. The
+  library schedules nothing, so run the sync from a timer of your own."
   ([step at]
    (next-sync step at {}))
   ([{:keys [changed? failures] synced-at :at :as step} at cadence]
@@ -245,16 +245,19 @@
 
   It returns this, in ClojureScript as a promise:
 
-      {:state   merged
-       :cursors {\"Nextcloud\" {…} …}  ; by backend name
-       :report  [...]}               ; what reading and writing found
+      {:state    merged
+       :cursors  {\"Nextcloud\" {…} …}  ; by backend name
+       :at       #inst \"…\"           ; the instant of the step
+       :failures 0                    ; the steps in a row in which a
+                                      ; backend failed
+       :report   [...]}               ; what reading and writing found
 
   In ClojureScript, each function of a backend can return a value or a
   promise. The `opts` are the options of the state, whose CRDT merges,
   and these:
 
   - :at, the instant of the step, the time of the clock by default
-  - :cursors, those of the last step
+  - :cursors and :failures, those of the last step
   - :compact, false to keep the tombstones that every device has seen, or
     else the options of the compact function of the CRDT
 
@@ -268,13 +271,12 @@
 
   Run one step at a time, since a step that overlaps another can write an
   older state after a newer one. What the user did during a step isn't in
-  its :state, so don't put the result in place of the state. Merge it
-  into the state as it is by then, and compact as the step did, since the
-  merge brings back the tombstones that the step dropped.
+  its :state, so don't put the result in place of the state, but give it
+  to finish with the state as it is by then.
 
   The backends need distinct names, since the cursors are kept by name,
   and the same name twice throws."
-  [state backends {:keys [at cursors] :as opts}]
+  [state backends {:keys [at cursors failures] :as opts}]
   {:pre [(map? opts)]}
   (when-let [twice (seq (for [[name n] (frequencies (map :name backends))
                               :when (< 1 n)]
@@ -299,10 +301,34 @@
              attempt!  (fn [ok]
                          (async/attempt #(push! ok)))
              malformed {:id :sync/malformed-state :error problem}
-             finish    (fn [pushes]
-                         (cond-> (finished so-far cursors pushes at opts)
-                           problem
-                           (update :report conj
-                                   (diagnostics/describe malformed))))]
+             failed?   #(some (comp #{:sync/backend-failed} :id) %)
+             done      (fn [pushes]
+                         (let [step (cond-> (finished so-far cursors pushes
+                                                      at opts)
+                                      problem
+                                      (update :report conj
+                                              (diagnostics/describe
+                                               malformed)))]
+                           (assoc step
+                                  :at       at
+                                  :failures (if (failed? (:report step))
+                                              (inc (or failures 0))
+                                              0))))]
          (async/then (async/all (map attempt! (:ok so-far)))
-                     finish))))))
+                     done))))))
+
+(defn finish
+  "The `state` as it is by now, with the :state of the `step` of sync!
+  merged in by the CRDT of `opts`, the options of the step, and compacted
+  at the step's :at as the step was.
+
+  What the user did during the step is in `state` alone, so the result
+  keeps both. The merge brings back the tombstones that the step dropped,
+  which is why it's compacted again."
+  [state step {:keys [compact] :as opts}]
+  {:pre [(map? opts)]}
+  (let [{merge-fn :merge compact-fn :compact} (crdt/functions opts)
+        merged (merge-fn state (:state step))]
+    (if (false? compact)
+      merged
+      (compact-fn merged (:at step) (or compact {})))))

@@ -92,16 +92,25 @@ the same folder writes `laptop.edn`, and merges in the phone's notes:
 ;; => ("bread" "milk")
 ```
 
-A step returns the merged `:state`, a `:report` of what it found, and the
-`:cursors` of the backends, which the next step of the device takes:
+A step returns the merged `:state`, a `:report` of what it found, its
+`:at`, and the `:cursors` of the backends and the `:failures` in a row,
+which the next step of the device takes:
 
 ```clojure
-(like-minded/sync! (:state step) [dropbox] (assoc opts :cursors (:cursors step)))
+(like-minded/sync! (:state step) [dropbox]
+                   (merge opts (select-keys step [:cursors :failures])))
 ```
 
-In ClojureScript, `sync!` returns a promise. Merge the `:state` of a step
-into the state as it is by then, since the user may have changed it
-during the step, and call `next-sync` for when to sync again.
+In ClojureScript, `sync!` returns a promise. The user may have changed
+the state during the step, so give the step to `finish` with the state as
+it is by then, which merges the two and compacts them as the step did:
+
+```clojure
+(-> (like-minded/finish phone step opts) :notes keys)
+;; => ("milk")
+```
+
+Then call `next-sync` for when to sync again.
 
 When to sync
 ------------
@@ -112,9 +121,8 @@ something changed. Run one step at a time, since a step that overlaps
 another can write an older state after a newer one. A file watcher also sees the writes of the step itself, so let
 such a call wait until the step ends.
 
-For when to sync again, give `next-sync` the `:at` of the last step,
-whether the state has `:changed?` since, and how many steps in a row had
-a backend that failed, as `:failures`:
+For when to sync again, give `next-sync` the last step, with its `:at`
+and `:failures`, and whether the state has `:changed?` since:
 
 ```clojure
 (like-minded/next-sync {:at #inst "2026-10-10T09:00:00Z" :changed? true}

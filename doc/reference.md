@@ -158,15 +158,17 @@ device can't read all of it and a put would lose data.
 A step of `sync!` returns this, in ClojureScript as a promise:
 
 ```clojure
-{:state   merged                ; the local state with the pulled states merged
- :cursors {"Nextcloud" {…} …}   ; by backend name
- :report  [...]}                ; the diagnostics of the step
+{:state    merged                ; the local state with the pulled states merged
+ :cursors  {"Nextcloud" {…} …}   ; by backend name
+ :at       #inst "…"             ; the instant of the step
+ :failures 0                     ; the steps in a row in which a backend failed
+ :report   [...]}                ; the diagnostics of the step
 ```
 
 Besides the options of the state, `sync!` takes `:at`, the instant of the
-step, which is the current time by default, the `:cursors` of the last
-step, and `:compact`, which is false to keep every tombstone, or the
-options of the compact function of the CRDT.
+step, which is the current time by default, the `:cursors` and
+`:failures` of the last step, and `:compact`, which is false to keep
+every tombstone, or the options of the compact function of the CRDT.
 
 - A backend that failed is in the report as `:sync/backend-failed`, with
   its `:backend` and the `:reason`.
@@ -177,9 +179,10 @@ options of the compact function of the CRDT.
   a value that came in through an `assoc`, the step writes nothing and
   reports `:sync/malformed-state`, since the other devices would leave
   out the whole document.
-- The `:state` doesn't include what the user did during the step. Merge it
-  into the current state with the merge of the CRDT, then compact, since
-  the merge brings back the tombstones that the step dropped.
+- The `:state` doesn't include what the user did during the step, so give
+  the step to `finish` with the current state. It merges them with the
+  merge of the CRDT, then compacts at the step's `:at`, since the merge
+  brings back the tombstones that the step dropped.
 
 Each diagnostic in the report is a map with an `:id`, a `:level` and a
 `:message`, and `diagnostics/catalogue` describes every id.

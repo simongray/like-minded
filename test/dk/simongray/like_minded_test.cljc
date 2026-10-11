@@ -361,6 +361,23 @@
            (is (= written (:version (@documents "state.edn"))) "and the shared document stays as it was"))))))
 
 #?(:clj
+   (deftest finishing-a-step
+     (let [backend   (sync/backend (store/memory) with-notes)
+           far       (time/->inst (+ (inst-ms t4) (* 31 24 60 60 1000)))
+           phone     (crdt/write (phone-notes) [:notes "milk"] #(assoc % :removed? true) t2)
+           p1        (sync/sync! phone [backend] (assoc with-notes :at t3))
+           _         (sync/sync! (laptop-notes) [backend] (assoc with-notes :at t3))
+           p2        (sync/sync! (:state p1) [backend] (merge with-notes {:at far} (select-keys p1 [:cursors :failures])))
+           meanwhile (crdt/write (:state p1) [:notes "tea"] (constantly {:text "Buy tea"}) far)
+           finished  (sync/finish meanwhile p2 with-notes)]
+       (is (= [far 0] ((juxt :at :failures) p2)) "a step says when it was, and that no backend failed")
+       (is (= "Buy tea" (text finished "tea")) "what the user did during the step stays")
+       (is (= "Buy six eggs" (text finished "eggs")) "and what the step brought joins it")
+       (is (not (contains? (:notes finished) "milk")) "while the tombstone that the step dropped stays dropped")
+       (is (contains? (:notes (sync/finish meanwhile p2 (assoc with-notes :compact false))) "milk")
+           "unless compaction is turned off"))))
+
+#?(:clj
    (deftest several-backends-one-failing
      (let [good   (sync/backend (store/memory) (assoc with-notes :name "good"))
            broken {:name "broken"
@@ -370,6 +387,11 @@
        (is (= {"broken" "connection refused"} (failed result)))
        (is (= {:token 1} (get (:cursors result) "broken")) "a backend that fails keeps its cursor")
        (is (contains? (:cursors result) "good"))
+       (testing "the steps in a row in which a backend failed"
+         (is (= [t2 1] ((juxt :at :failures) result)))
+         (is (= 3 (:failures (sync/sync! (phone-notes) [good broken] (assoc with-notes :at t2 :failures 2)))))
+         (is (= 0 (:failures (sync/sync! (phone-notes) [good] (assoc with-notes :at t2 :failures 2))))
+             "until a step in which none did"))
        (testing "a push that fails keeps the cursor of its pull, and what it pulled"
          (let [half {:name "half"
                      :pull (fn [_ _ _] {:states [(laptop-notes)] :cursor {:pulled true} :report []})
