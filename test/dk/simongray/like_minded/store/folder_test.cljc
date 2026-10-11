@@ -95,6 +95,8 @@
          #(async/then (names! @dir) (fn [names] (is (= #{".hidden" "a.edn"} names) "no temporary file is left behind")))
          #(async/then (failed? (fn [] (call :fetch "../a.edn" {}))) (fn [e] (is e)))
          #(async/then (failed? (fn [] (call :put ".hidden" "x" {}))) (fn [e] (is e)))
+         #(async/then (failed? (fn [] (call :put (apply str (repeat 128 "æ")) "x" {})))
+                      (fn [e] (is e "a name of more than 255 bytes")))
          #(async/then (call :delete "a.edn") (fn [_] (call :delete "a.edn")))
          #(async/then (call :list) (fn [docs] (is (= [] docs))))
          #(remove-folder! @dir))))

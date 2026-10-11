@@ -33,6 +33,7 @@
   - ::read-only, a folder that the browser can't write to"
   (:require #?(:clj [clojure.java.io :as io])
             [clojure.string :as str]
+            [dk.simongray.like-minded.bytes :as bytes]
             [dk.simongray.wary-fetch.async :as async])
   #?(:clj (:import [java.io File FileNotFoundException]
                    [java.nio.file
@@ -305,8 +306,12 @@
   [{:keys [files read version write delete lock-key] :as folder}]
   (let [plain   #(if (or (str/blank? (str %))
                          (re-find #"[/\\]" (str %))
-                         (str/starts-with? (str %) "."))
-                   (throw (ex-info "A document's name is a plain file name"
+                         (str/starts-with? (str %) ".")
+                         ;; the longest name that every common file system
+                         ;; takes, ext4's
+                         (< 255 (bytes/length (bytes/encode (str %)))))
+                   (throw (ex-info (str "A document's name is a plain file "
+                                        "name of at most 255 bytes")
                                    {:name %}))
                    %)
         hidden? #(str/starts-with? (:name %) ".")
