@@ -1,6 +1,8 @@
 like-minded
 ===========
 
+[![Clojars Project](https://img.shields.io/clojars/v/dk.simongray/like-minded.svg)](https://clojars.org/dk.simongray/like-minded)
+
 > _Great minds think alike._
 
 This is a Clojure and ClojureScript library for local-first sync. It keeps
@@ -41,17 +43,25 @@ The same code runs on the JVM, in Node and in the browser.
 Getting started
 ---------------
 
-It requires Clojure 1.11+ and Java 11+. Add it to the `:deps` in your
-`deps.edn` as a Git dependency, with the SHA of the latest commit on
-`master`:
+It requires Clojure 1.11+ and Java 11+. For the latest release, add it
+from [Clojars](https://clojars.org/dk.simongray/like-minded) to the
+`:deps` in your `deps.edn`:
 
 ```clojure
-dk.simongray/like-minded {:git/url "https://github.com/simongray/like-minded"
-                          :git/sha "…"}
+dk.simongray/like-minded {:mvn/version "0.1.0"}
 ```
 
-For ClojureScript, also set `:deps true` in your `shadow-cljs.edn`, since
-shadow-cljs only reads Git dependencies from `deps.edn`.
+For changes that aren't released yet, use the SHA of the latest commit on
+`master` instead:
+
+```clojure
+dk.simongray/like-minded
+{:git/url "https://github.com/simongray/like-minded"
+ :git/sha "…"}
+```
+
+For ClojureScript, shadow-cljs only reads Git dependencies from
+`deps.edn`, so also set `:deps true` in your `shadow-cljs.edn`.
 
 The state of each device is a state of mind-meld, and the options of the
 state say what it is. Give them to the backend and to each sync:
