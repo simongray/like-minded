@@ -6,7 +6,7 @@
  :deps  {org.clojure/clojure       {:mvn/version "1.11.4"}
          dk.simongray/wary-fetch   {:mvn/version "0.3.0"}
          dk.simongray/qname-hiccup {:mvn/version "0.2.0"}
-         dk.simongray/mind-meld    {:mvn/version "0.1.0"}}
+         dk.simongray/mind-meld    {:mvn/version "0.2.0"}}
 
  :aliases
  {;; clojure -X:test
