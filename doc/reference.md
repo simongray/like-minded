@@ -48,12 +48,14 @@ the probe document.
 
 ## The backend contract
 
-A backend is a map of two functions and a name, which `sync!` calls:
+A backend is a map of a name and two functions, which `sync!` calls, and
+a third for `leave!`:
 
 ```clojure
-{:pull (fn [state cursor at]) ; {:states […] :cursor cursor' :report […] :partial? false}
- :push (fn [state cursor at]) ; {:cursor cursor' :state state' :report […]}
- :name "my-service"}
+{:pull  (fn [state cursor at]) ; {:states […] :cursor cursor' :report […] :partial? false}
+ :push  (fn [state cursor at]) ; {:cursor cursor' :state state' :report […]}
+ :leave (fn [state cursor at]) ; {:cursor cursor' :report […]}, optional
+ :name  "my-service"}
 ```
 
 - The pull returns the states to merge and the cursor for the next step.
@@ -64,6 +66,9 @@ A backend is a map of two functions and a name, which `sync!` calls:
 - The push writes the merged state and returns the cursor. Its `:state`
   and `:report` are optional, and it returns a `:state` when it learned
   more while it wrote.
+- The leave writes the state of a device that retired itself, which the
+  push of a retired device doesn't, so that the other devices learn it.
+  A backend without one writes nothing for `leave!`.
 - The `at` is the instant of the step, so the functions never read a
   clock.
 - The backends of one `sync!` need different names, since the cursors are
@@ -125,7 +130,8 @@ following:
    document of this device. It needs no precondition, since no other device
    writes it.
 5. Put each extra document that changed.
-6. Delete the documents of retired devices.
+6. Delete the documents of the other retired devices. That of a device
+   that leaves stays, for the others to read.
 
 If the document of this device changed since the last step, another
 installation, or another tab of the same page, is using the same device
@@ -183,6 +189,12 @@ every tombstone, or the options of the compact function of the CRDT.
   the step to `finish` with the current state. It merges them with the
   merge of the CRDT, then compacts at the step's `:at`, since the merge
   brings back the tombstones that the step dropped.
+- A step that begins while another step of the device is running does
+  nothing, gives back the state, cursors and failures it was given, and
+  reports `:sync/overlapping-step`. In a browser, a Web Lock named after
+  the device keeps the steps of other tabs out too.
+- The state needs a `:device` that is a plain file name, since it names
+  the document of the device, and `sync!` throws without one.
 
 Each diagnostic in the report is a map with an `:id`, a `:level` and a
 `:message`, and `diagnostics/catalogue` describes every id.

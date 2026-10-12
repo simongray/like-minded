@@ -59,13 +59,16 @@
   and their :app, and give a map of the cursor that follows `cursor`.
 
   It writes this device's document when the state changed since the
-  cursor, and deletes the documents of retired devices."
+  cursor, and deletes the documents of the other retired devices. That of
+  a device that retires itself stays, for the others to read."
   [{:keys [put delete] :as store} opts state {:keys [versions] :as cursor} at]
   (let [own     (document/for-device state at opts)
         written (hash state)
         named   #(document/name-of % opts)
         listed? #(contains? versions (named %))
-        retired (filter listed? (keys (:retired state)))
+        retired (->> (keys (:retired state))
+                     (remove #{(:device state)})
+                     (filter listed?))
         delete! #(delete (named %))]
     (async/then
      (when (not= written (:hash cursor))

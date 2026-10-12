@@ -58,6 +58,21 @@
   [device opts]
   (str device (extension opts)))
 
+(defn checked-device
+  "The `state`, or a throw when its :device can't name its document: it
+  needs one that is a plain file name, e.g. what (str (random-uuid))
+  gives, made once for each installation."
+  [state]
+  (let [device (str (:device state))]
+    (when (or (str/blank? device)
+              (re-find #"[/\\]" device)
+              (str/starts-with? device "."))
+      (throw (ex-info (str "The state needs a :device that is a plain file "
+                           "name, e.g. what (str (random-uuid)) gives, made "
+                           "once for each installation")
+                      {:device (:device state)})))
+    state))
+
 (defn device-document?
   "Whether the listed document `doc` is one that a device writes, by the
   extension that the options of the state `opts` give."
@@ -86,6 +101,7 @@
   "The document that the device of `state` writes at `at`, with the options
   of the state `opts` and their :app, as a map of its :name and :body."
   [state at opts]
+  (checked-device state)
   {:name (name-of (:device state) opts)
    :body (encode state at opts)})
 

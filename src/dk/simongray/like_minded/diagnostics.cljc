@@ -50,7 +50,11 @@
            state a new device id to sync again."}
     {:id :sync/conflict :level :warning
      :doc "The shared document changed during every attempt to write it, so the
-           step ended without writing."}]))
+           step ended without writing."}
+    {:id :sync/overlapping-step :level :info
+     :doc "A step began while another step of this device was still running,
+           in this process or another tab of the page, so it did nothing, since
+           two steps at once can write an older state after a newer one."}]))
 
 (def by-id
   "The catalogue by id."

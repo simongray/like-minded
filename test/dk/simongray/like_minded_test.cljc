@@ -241,6 +241,82 @@
            (is (= ["laptop.edn"] (keys @documents))))))))
 
 #?(:clj
+   (deftest leaving
+     (let [documents (atom {})
+           backend   (sync/backend (store/memory documents) with-notes)
+           phone     (sync/sync! (phone-notes) [backend] (assoc with-notes :at t2))
+           laptop    (sync/sync! (laptop-notes) [backend] (assoc with-notes :at t3))
+           left      (sync/leave! (:state phone) [backend] (assoc with-notes :at t4 :cursors (:cursors phone)))]
+       (is (crdt/retired? (:state left) "phone"))
+       (is (nil? (failed left)))
+       (is (= #{"phone.edn" "laptop.edn"} (set (keys @documents)))
+           "its document stays, with the retirement in it")
+       (let [laptop2 (sync/sync! (:state laptop) [backend] (assoc with-notes :at t4 :cursors (:cursors laptop)))]
+         (is (crdt/retired? (:state laptop2) "phone") "for the others to read")
+         (is (= ["laptop.edn"] (keys @documents)) "and delete"))
+       (is (= [:sync/retired-device]
+              (map :id (:report (sync/sync! (:state left) [backend] (assoc with-notes :at t4 :cursors (:cursors left))))))
+           "after which it writes no more"))))
+
+#?(:clj
+   (deftest overlapping-steps
+     (let [started (promise)
+           release (promise)
+           slow    {:name "slow"
+                    :pull (fn [_ cursor _]
+                            (deliver started true)
+                            @release
+                            {:states [] :cursor cursor :report []})
+                    :push (fn [_ cursor _] {:cursor cursor})}
+           running (future (sync/sync! (phone-notes) [slow] (assoc with-notes :at t2)))]
+       @started
+       (let [overlap (sync/sync! (phone-notes) [slow] (assoc with-notes :at t3 :failures 2))]
+         (is (= [:sync/overlapping-step] (map :id (:report overlap))) "a step of the same device does nothing")
+         (is (= [(phone-notes) {} t3 2] ((juxt :state :cursors :at :failures) overlap)))
+         (is (= [:sync/overlapping-step]
+                (map :id (:report (sync/leave! (phone-notes) [slow] (assoc with-notes :at t3))))))
+         (is (= [] (:report (sync/sync! (laptop-notes) [(sync/backend (store/memory) with-notes)]
+                                        (assoc with-notes :at t3))))
+             "but another device's runs"))
+       (deliver release true)
+       (is (nil? (failed @running)))
+       (is (= [] (:report (sync/sync! (phone-notes) [slow] (assoc with-notes :at t4))))
+           "and so does the next once the first is done"))))
+
+;; in a browser by a Web Lock, and in Node within the process
+#?(:cljs
+   (deftest overlapping-steps-with-promises
+     (async done
+       (let [release (atom nil)
+             gate    (js/Promise. (fn [resolve] (reset! release resolve)))
+             slow    {:name "slow"
+                      :pull (fn [_ cursor _]
+                              (.then gate (fn [_] {:states [] :cursor cursor :report []})))
+                      :push (fn [_ cursor _] {:cursor cursor})}
+             running (sync/sync! (phone-notes) [slow] (assoc with-notes :at t2))]
+         (-> (sync/sync! (phone-notes) [slow] (assoc with-notes :at t3))
+             (.then (fn [overlap]
+                      (is (= [:sync/overlapping-step] (map :id (:report overlap))))
+                      (@release nil)
+                      running))
+             (.then (fn [step]
+                      (is (nil? (failed step)))
+                      (sync/sync! (phone-notes) [slow] (assoc with-notes :at t4))))
+             (.then (fn [step]
+                      (is (= [] (:report step)) "and the next step runs once the first is done")))
+             (.catch (fn [e] (is false (str "the promise was rejected: " e))))
+             (.finally done))))))
+
+(deftest a-device-that-names-a-document
+  (let [backend (sync/backend (store/memory) with-notes)]
+    (doseq [state [{} {:device ""} {:device ".phone"} {:device "a/b"}]]
+      (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo) #"plain file name"
+                            (sync/sync! state [backend] (assoc with-notes :at t2)))
+          (pr-str state)))
+    (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo) #"plain file name"
+                          (sync/leave! {} [backend] (assoc with-notes :at t2))))))
+
+#?(:clj
    (deftest a-state-that-the-others-cannot-merge
      (let [documents (atom {})
            backend   (sync/backend (store/memory documents) with-notes)

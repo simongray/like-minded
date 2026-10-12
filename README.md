@@ -48,7 +48,7 @@ from [Clojars](https://clojars.org/dk.simongray/like-minded) to the
 `:deps` in your `deps.edn`:
 
 ```clojure
-dk.simongray/like-minded {:mvn/version "0.1.1"}
+dk.simongray/like-minded {:mvn/version "0.2.0"}
 ```
 
 For changes that aren't released yet, use the SHA of the latest commit on
@@ -87,6 +87,10 @@ state say what it is. Give them to the backend and to each sync:
 (def step
   (like-minded/sync! phone [dropbox] opts))
 ```
+
+The `:device` of a state names its document, so make it once for each
+installation and keep it, e.g. with `(str (random-uuid))`. It has to be
+a plain file name, and `sync!` throws without one.
 
 The step writes `phone.edn` into the folder. A laptop that syncs through
 the same folder writes `laptop.edn`, and merges in the phone's notes:
@@ -127,9 +131,12 @@ When to sync
 
 Call `sync!` when the app starts, when it goes to the background, after a
 series of changes, and when a file watcher or a service says that
-something changed. Run one step at a time, since a step that overlaps
-another can write an older state after a newer one. A file watcher also sees the writes of the step itself, so let
-such a call wait until the step ends.
+something changed. A step that overlaps another can write an older state
+after a newer one, so a step that begins while another step of the
+device is running does nothing, and its report has
+`:sync/overlapping-step`. That holds within a process, and in a browser
+across the tabs of a page too. A file watcher also sees the writes of
+the step itself, so let such a call wait until the step ends.
 
 For when to sync again, give `next-sync` the last step, with its `:at`
 and `:failures`, and whether the state has `:changed?` since:
@@ -147,6 +154,13 @@ the third argument.
 For control over the I/O, e.g. in a background task with a time budget,
 `reconcile` merges the documents that you fetch yourself, as the
 [reference](doc/reference.md#a-step) describes.
+
+To turn sync off on a device, call `leave!`, which takes what `sync!`
+takes. It retires the device and writes that through each backend once
+more. The other devices read it at their next step, stop waiting for the
+device before they compact, and delete its document. A retired device
+can't come back, so to sync it again later, give its state a new
+`:device`.
 
 Stores
 ------
@@ -218,7 +232,8 @@ a `:pull` and a `:push`:
 ```
 
 A pull that gives only the changes since its cursor says so with
-`:partial?`, and they merge like any other state. The
+`:partial?`, and they merge like any other state. A `:leave` that writes
+the state of a device that leaves is optional. The
 [reference](doc/reference.md#the-backend-contract) has the whole
 contract.
 

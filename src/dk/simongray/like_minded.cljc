@@ -2,18 +2,19 @@
   "Syncing a state of mind-meld between a user's devices, through any
   number of backends.
 
-  A backend is a map of two functions and a name:
+  A backend is a map of a name and two functions, and a third for leave!:
 
-      {:pull (fn [state cursor at])  ; the states of the other devices
-       :push (fn [state cursor at])  ; writes the merged state
-       :name \"Nextcloud\"}
+      {:pull  (fn [state cursor at])  ; the states of the other devices
+       :push  (fn [state cursor at])  ; writes the merged state
+       :leave (fn [state cursor at])  ; writes it once retired, optional
+       :name  \"Nextcloud\"}
 
   A pull returns a map of the :states to merge, the next :cursor and a
   :report. It has :partial? when the states are changes since the cursor
-  rather than whole states. A push returns the next :cursor and a
-  :report, and a :state when it learned more while writing. Both take the
-  instant of the sync and never read a clock. The function backend makes
-  a backend of any store of dk.simongray.like-minded.store.
+  rather than whole states. A push and a leave return the next :cursor
+  and a :report, and a push a :state when it learned more while writing.
+  They take the instant of the sync and never read a clock. The function
+  backend makes a backend of any store of dk.simongray.like-minded.store.
 
   The options of the state say what the state is. Give the same ones to a
   backend, to sync!, to reconcile and to the functions of
@@ -112,22 +113,26 @@
     (when (and (not= :pull direction) (not (:put store)))
       (throw (ex-info "A store without :put can only be pulled from"
                       {:name (:name store)})))
-    {:name (or (:name opts) (:name store))
-     :pull (fn [state cursor at]
-             (if (= :push direction)
-               {:states [] :cursor cursor :report []}
-               (pull! store opts state cursor at)))
-     :push (fn [state cursor at]
-             (cond
-               (= :pull direction)
-               {:cursor cursor}
+    {:name  (or (:name opts) (:name store))
+     :pull  (fn [state cursor at]
+              (if (= :push direction)
+                {:states [] :cursor cursor :report []}
+                (pull! store opts state cursor at)))
+     :push  (fn [state cursor at]
+              (cond
+                (= :pull direction)
+                {:cursor cursor}
 
-               (mind-meld/retired? state (:device state))
-               {:cursor cursor :report [(retired state)]}
+                (mind-meld/retired? state (:device state))
+                {:cursor cursor :report [(retired state)]}
 
-               :else
-               (async/then (push! store opts state cursor at)
-                           #(with-extras store opts state %))))}))
+                :else
+                (async/then (push! store opts state cursor at)
+                            #(with-extras store opts state %))))
+     :leave (fn [state cursor at]
+              (if (= :pull direction)
+                {:cursor cursor}
+                (push! store opts state cursor at)))}))
 
 (def default-cadence
   "How many seconds to wait before syncing again:
@@ -239,53 +244,50 @@
                   (into (mapcat (fn [[_ _ push]] (:report push))) pushes)
                   (into failed))}))
 
-(defn sync!
-  "Sync `state` through `backends` in one step with the `opts` below: pull
-  from every backend at once, merge, and push the merged state to each.
+(defonce ^{:no-doc true
+            :doc    "The devices whose step is running in this process."}
+  running
+  (atom #{}))
 
-  It returns this, in ClojureScript as a promise:
+(defn- in-process
+  "What `step-fn` gives, unless a step of `device` is running in this
+  process, when it's what `busy-fn` gives."
+  [device busy-fn step-fn]
+  (let [[before _] (swap-vals! running conj device)
+        release    #(swap! running disj device)]
+    (if (contains? before device)
+      #?(:clj (busy-fn) :cljs (js/Promise.resolve (busy-fn)))
+      #?(:clj  (try
+                 (step-fn)
+                 (finally
+                   (release)))
+         :cljs (-> (js/Promise.resolve nil)
+                   (.then (fn [_] (step-fn)))
+                   (.finally release))))))
 
-      {:state    merged
-       :cursors  {\"Nextcloud\" {…} …}  ; by backend name
-       :at       #inst \"…\"           ; the instant of the step
-       :failures 0                    ; the steps in a row in which a
-                                      ; backend failed
-       :report   [...]}               ; what reading and writing found
+;; Web Locks API, W3C Working Draft of 24 September 2025, 2.4 and 3.2.1: a
+;; lock is held until the promise of its callback settles, and with
+;; ifAvailable, the callback gets null when another holds it
+(defn- guarded
+  "What `step-fn` gives for a step of the device of `state`, unless one of
+  its steps is running, when it's what `busy-fn` gives. In a browser, the
+  steps of the other tabs of the page count too."
+  [state busy-fn step-fn]
+  (let [device (:device state)]
+    #?(:clj  (in-process device busy-fn step-fn)
+       :cljs (if-let [^js locks (some-> js/globalThis .-navigator .-locks)]
+               (.request locks
+                         (str "like-minded/" device)
+                         #js {:ifAvailable true}
+                         (fn [lock]
+                           (if lock (step-fn) (busy-fn))))
+               (in-process device busy-fn step-fn)))))
 
-  In ClojureScript, each function of a backend can return a value or a
-  promise. The `opts` are the options of the state, whose CRDT merges,
-  and these:
-
-  - :at, the instant of the step, the time of the clock by default
-  - :cursors and :failures, those of the last step
-  - :compact, false to keep the tombstones that every device has seen, or
-    else the options of the compact function of the CRDT
-
-  A backend whose pull fails isn't pushed to and keeps its cursor, and one
-  whose push fails keeps the cursor of its pull. The report has a
-  :sync/backend-failed diagnostic for each, with its :backend and the
-  :reason. The state is only ever merged into, so a failed step loses
-  nothing. A state in which the :problem of the CRDT finds a problem isn't
-  pushed, since the other devices would leave it out, and the report has
-  :sync/malformed-state.
-
-  Run one step at a time, since a step that overlaps another can write an
-  older state after a newer one. What the user did during a step isn't in
-  its :state, so don't put the result in place of the state, but give it
-  to finish with the state as it is by then.
-
-  The backends need distinct names, since the cursors are kept by name,
-  and the same name twice throws."
-  [state backends {:keys [at cursors failures] :as opts}]
-  {:pre [(map? opts)]}
-  (when-let [twice (seq (for [[name n] (frequencies (map :name backends))
-                              :when (< 1 n)]
-                          name))]
-    (throw (ex-info (str "The backends of one sync need distinct names, "
-                         "and these are not: " (pr-str twice))
-                    {:names twice})))
+(defn- step!
+  "A step of sync! of `state` through `backends` at `at`, with the `opts`
+  of sync!, while no other step of its device runs."
+  [state backends at {:keys [cursors failures] :as opts}]
   (let [problem-of (:problem (crdt/functions opts))
-        at         (or at (time/now))
         pull!      (fn [{:keys [pull name]}]
                      (async/attempt #(pull state (get cursors name) at)))]
     (async/then
@@ -317,6 +319,70 @@
          (async/then (async/all (map attempt! (:ok so-far)))
                      done))))))
 
+(defn- skipped
+  "The step of `state` at `at` that overlapped another, which did nothing,
+  with the :cursors and :failures of `opts`."
+  [state at {:keys [cursors failures]}]
+  {:state    state
+   :cursors  (or cursors {})
+   :at       at
+   :failures (or failures 0)
+   :report   [(diagnostics/describe {:id :sync/overlapping-step})]})
+
+(defn sync!
+  "Sync `state` through `backends` in one step with the `opts` below: pull
+  from every backend at once, merge, and push the merged state to each.
+
+  It returns this, in ClojureScript as a promise:
+
+      {:state    merged
+       :cursors  {\"Nextcloud\" {…} …}  ; by backend name
+       :at       #inst \"…\"           ; the instant of the step
+       :failures 0                    ; the steps in a row in which a
+                                      ; backend failed
+       :report   [...]}               ; what reading and writing found
+
+  In ClojureScript, each function of a backend can return a value or a
+  promise. The `opts` are the options of the state, whose CRDT merges,
+  and these:
+
+  - :at, the instant of the step, the time of the clock by default
+  - :cursors and :failures, those of the last step
+  - :compact, false to keep the tombstones that every device has seen, or
+    else the options of the compact function of the CRDT
+
+  A backend whose pull fails isn't pushed to and keeps its cursor, and one
+  whose push fails keeps the cursor of its pull. The report has a
+  :sync/backend-failed diagnostic for each, with its :backend and the
+  :reason. The state is only ever merged into, so a failed step loses
+  nothing. A state in which the :problem of the CRDT finds a problem isn't
+  pushed, since the other devices would leave it out, and the report has
+  :sync/malformed-state.
+
+  One step of a device runs at a time, since a step that overlaps another
+  can write an older state after a newer one. A step that begins while
+  another is running does nothing, and its report has
+  :sync/overlapping-step. What the user did during a step isn't in its
+  :state, so don't put the result in place of the state, but give it to
+  finish with the state as it is by then.
+
+  The state needs a :device that is a plain file name, and the backends
+  need distinct names, since the cursors are kept by name. Either
+  mistake throws."
+  [state backends {:keys [at] :as opts}]
+  {:pre [(map? opts)]}
+  (document/checked-device state)
+  (when-let [twice (seq (for [[name n] (frequencies (map :name backends))
+                              :when (< 1 n)]
+                          name))]
+    (throw (ex-info (str "The backends of one sync need distinct names, "
+                         "and these are not: " (pr-str twice))
+                    {:names twice})))
+  (let [at (or at (time/now))]
+    (guarded state
+             #(skipped state at opts)
+             #(step! state backends at opts))))
+
 (defn finish
   "The `state` as it is by now, with the :state of the `step` of sync!
   merged in by the CRDT of `opts`, the options of the step, and compacted
@@ -332,3 +398,51 @@
     (if (false? compact)
       merged
       (compact-fn merged (:at step) (or compact {})))))
+
+(defn- left
+  "The result of leave! of the `retired` state at `at` through `backends`,
+  whose leave `results` are in order, with the :cursors and :failures of
+  `opts`."
+  [retired backends results at {:keys [cursors failures]}]
+  (let [answers (map vector backends results)
+        failed  (for [[backend {:keys [error]}] answers
+                      :when error]
+                  (failure backend error))]
+    {:state    retired
+     :cursors  (reduce (fn [m [{:keys [name]} {:keys [value error]}]]
+                         (assoc m name (if error
+                                         (get cursors name)
+                                         (:cursor value))))
+                       (or cursors {})
+                       answers)
+     :at       at
+     :failures (if (seq failed) (inc (or failures 0)) 0)
+     :report   (-> []
+                   (into (mapcat (comp :report :value)) results)
+                   (into failed))}))
+
+(defn leave!
+  "Retire the device of `state` and write that through each of `backends`
+  once more, with the `opts` of sync!, e.g. when the user turns sync off.
+
+  The other devices read it at their next step, after which they no longer
+  wait for this one to compact, and the first of them deletes its
+  document. It returns what sync! does, with the state retired, and a
+  backend without a :leave writes nothing. The device can't sync again,
+  since a retired device can't come back, so give the state a new device
+  id for that."
+  [state backends {:keys [at] :as opts}]
+  {:pre [(map? opts)]}
+  (document/checked-device state)
+  (let [at      (or at (time/now))
+        retired (mind-meld/retire state (:device state) at)
+        write!  (fn [{:keys [leave name]}]
+                  (async/attempt
+                   #(if leave
+                      (leave retired (get (:cursors opts) name) at)
+                      {:cursor (get (:cursors opts) name)})))]
+    (guarded state
+             #(skipped state at opts)
+             #(async/then (async/all (map write! backends))
+                          (fn [results]
+                            (left retired backends results at opts))))))
