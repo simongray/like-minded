@@ -20,6 +20,10 @@
 (def nextcloud-propfind
   (fixture "webdav/nextcloud-propfind.xml"))
 
+(def xml-headers
+  "The headers of an answer of XML, as wary-fetch gives them."
+  {"content-type" ["application/xml; charset=utf-8"]})
+
 (deftest a-backend-over-a-collection
   (let [b (sync/backend (webdav/store "https://cloud.example.org/remote.php/dav/files/simon/notes/"
                                       {:credentials {:username "simon" :password "x"}})
@@ -27,6 +31,8 @@
     (is (= "cloud.example.org" (:name b)) "named after the host")
     (is (= "cloud.example.org" (:name (webdav/store "https://simon:secret@cloud.example.org/notes/")))
         "never after the credentials a URL carries")
+    (is (thrown? #?(:clj Exception :cljs js/Error) ((:list (webdav/store "https://simon:secret@cloud.example.org/notes/"))))
+        "which it doesn't send, as fetch doesn't")
     (is (fn? (:pull b)))
     (is (fn? (:push b)))
     (is (= "Nextcloud" (:name (sync/backend (webdav/store "https://cloud.example.org/dav/" {:name "Nextcloud"})
@@ -51,7 +57,7 @@
     (is (= "1" (get-in listing [:headers "Depth"])))
     (is (= "Basic c2ltb246YXBwIHBhc3M=" (get-in (http/revealed listing) [:headers "Authorization"])))
     (is (not (re-find #"c2ltb246" (pr-str listing))) "a request that is printed does not show the password")
-    (is (str/includes? (:body listing) "<d:getetag/>"))
+    (is (str/includes? (:body listing) ":getetag/>"))
     (is (= "Bearer t"
            (get-in (http/revealed (webdav/request :list root nil {:credentials {:token "t"}})) [:headers "Authorization"])))
     (is (= "Bearer later"
@@ -94,14 +100,16 @@
     (is (= [{:name "8f1c9e2a-7a4b-4c1d-9e2f-0a1b2c3d4e5f.edn" :version "\"a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6\""}
             {:name "laptop at home.edn" :version "\"0f9e8d7c6b5a4938271605f4e3d2c1b0\""}
             {:name "subscriptions.opml" :version "\"123456789abcdef0123456789abcdef0\""}]
-           (webdav/response :list {:status 207 :headers {} :body nextcloud-propfind}))))
+           (webdav/response :list {:status 207 :headers xml-headers :body nextcloud-propfind}))))
   (testing "the same listing under another prefix and with absolute hrefs"
     (let [body (-> nextcloud-propfind
                    (str/replace "d:" "D:")
                    (str/replace "xmlns:d=" "xmlns:D=")
                    (str/replace "<D:href>/remote.php" "<D:href>https://cloud.example.org/remote.php"))]
       (is (= ["8f1c9e2a-7a4b-4c1d-9e2f-0a1b2c3d4e5f.edn" "laptop at home.edn" "subscriptions.opml"]
-             (map :name (webdav/response :list {:status 207 :headers {} :body body}))))))
+             (map :name (webdav/response :list {:status 207 :headers xml-headers :body body}))))))
+  (is (thrown? #?(:clj Exception :cljs js/Error) (webdav/response :list {:status 207 :headers xml-headers :body "<d:multistatus"}))
+      "a listing that can't be read isn't taken for an empty one")
   (is (= [] (webdav/response :list {:status 404 :headers {} :body ""})) "a collection not there yet lists nothing")
   (is (thrown-with-msg? #?(:clj Exception :cljs js/Error) #"500" (webdav/response :list {:status 500 :headers {} :body ""})))
   (testing "one document"
@@ -139,7 +147,7 @@
       (case method
         :propfind (if (::created @documents)
                     {:status  207
-                     :headers {}
+                     :headers xml-headers
                      :body    (str "<?xml version=\"1.0\"?><D:multistatus xmlns:D=\"DAV:\">"
                                    (entry "/dav/" nil)
                                    (apply str (for [[n {:keys [version]}] (dissoc @documents ::created)]
@@ -181,13 +189,12 @@
        (testing "the collection, with and without its slash"
          (is (= 207 (:status (handler (ring :propfind "/dav/")))))
          (is (= 207 (:status (handler (ring :propfind "/dav")))))
-         (is (str/includes? (:body (handler (ring :propfind "/dav/"))) "<d:collection/>"))
+         (is (str/includes? (:body (handler (ring :propfind "/dav/"))) ":collection/>"))
          (is (= 200 (:status (handler (ring :options "/dav/")))))
          (is (= "1" (get-in (handler (ring :options "/dav/")) [:headers "DAV"])))
          (is (str/includes? (get-in (handler (ring :options "/dav/")) [:headers "Allow"]) "DELETE"))
-         (is (= 405 (:status (handler (ring :get "/dav/")))))
-         (is (= "OPTIONS, PROPFIND" (get-in (handler (ring :get "/dav/")) [:headers "Allow"]))
-             "a 405 names the methods of the target, as RFC 9110 asks")
+         (is (= "text/html; charset=utf-8" (get-in (handler (ring :get "/dav/")) [:headers "Content-Type"]))
+             "a page of links for a browser")
          (is (= 404 (:status (handler (ring :get "/elsewhere"))))))
        (testing "a document put, listed, fetched and deleted, the name decoded"
          (let [{:keys [status headers]} (handler (ring :put "/dav/phone%201.edn" :body "{:version 1 :state {}}"))]
@@ -195,8 +202,8 @@
            (is (= "\"1\"" (get headers "ETag")))
            (is (= ["phone 1.edn"] (keys @documents)))
            (is (= "{:version 1 :state {}}" (:body (handler (ring :get "/dav/phone%201.edn")))))
-           (is (= "" (:body (handler (ring :head "/dav/phone%201.edn")))))
-           (is (str/includes? (:body (handler (ring :propfind "/dav/"))) "<d:href>/dav/phone%201.edn</d:href>"))
+           (is (empty? (:body (handler (ring :head "/dav/phone%201.edn")))))
+           (is (str/includes? (:body (handler (ring :propfind "/dav/"))) ":href>/dav/phone%201.edn</"))
            (is (not (str/includes? (:body (handler (ring :propfind "/dav/" :headers {"depth" "0"}))) "phone%201.edn"))
                "at depth zero, the collection alone")
            (is (= [{:name "phone 1.edn" :version "\"1\""}]
@@ -220,15 +227,26 @@
                                                 (:body (handler (ring :get "/dav/a.ciff")))))))
            (handler (ring :delete "/dav/a.ciff"))))
        (testing "what is refused"
-         (is (= 400 (:status (handler (ring :put "/dav/sub/x.edn" :body "x")))) "no paths within the collection")
+         (is (= 409 (:status (handler (ring :put "/dav/sub/x.edn" :body "x")))) "no paths within the collection")
          (is (= 400 (:status (handler (ring :put "/dav/%2e%2e" :body "x")))) "nor . or ..")
          (is (= 400 (:status (handler (ring :put "/dav/x%00.edn" :body "x")))) "nor a control character")
          (is (= 405 (:status (handler (ring :lock "/dav/x.edn")))))
-         (is (= "OPTIONS, GET, HEAD, PUT, DELETE, PROPFIND" (get-in (handler (ring :lock "/dav/x.edn")) [:headers "Allow"])))
+         (is (= "OPTIONS, PUT, PROPFIND, PROPPATCH" (get-in (handler (ring :lock "/dav/x.edn")) [:headers "Allow"]))
+             "a 405 names the methods of the target, as RFC 9110 asks")
          (is (= 405 (:status (handler (ring :mkcol "/dav/sub")))))
          (is (= 405 (:status (handler (ring :mkcol "/dav/")))) "the collection is there, and MKCOL is for an unmapped URL"))
        (testing "a percent sign that starts no escape is part of the name"
-         (is (= 404 (:status (handler (ring :get "/dav/100%.edn")))))))
+         (is (= 404 (:status (handler (ring :get "/dav/100%.edn"))))))
+       (testing "a name that the store refuses, as the folder store refuses .hidden"
+         (let [picky (assoc (store/memory) :put (fn [name _ _]
+                                                  (throw (ex-info "A document's name is a plain file name"
+                                                                  {:name name}))))]
+           (is (= 400 (:status ((server/handler picky "/dav/") (ring :put "/dav/.hidden" :body "x")))))))
+       (testing "a copy and a move within the collection"
+         (handler (ring :put "/dav/a.edn" :body "{}"))
+         (is (= 201 (:status (handler (ring :copy "/dav/a.edn" :headers {"Destination" "/dav/b.edn"})))))
+         (is (= 201 (:status (handler (ring :move "/dav/b.edn" :headers {"Destination" "/dav/c.edn"})))))
+         (is (= {"a.edn" "{}" "c.edn" "{}"} (update-vals @documents :body)))))
      (testing "a version that isn't a string, e.g. the version of a row"
        (let [documents (atom {"a.edn" {:body "{}" :version 7}})
              numbered  {:fetch (fn [name _] (get @documents name))
@@ -287,7 +305,8 @@
          (is (= 403 (:status (handler (ring :propfind "/dav/")))) "no Depth is infinity"))
        (testing "no DELETE, and OPTIONS says so"
          (is (= 405 (:status (handler (ring :delete "/dav/state.edn")))))
-         (is (= "OPTIONS, GET, HEAD, PUT, PROPFIND" (get-in (handler (ring :delete "/dav/state.edn")) [:headers "Allow"])))
+         (is (= "OPTIONS, GET, HEAD, PUT, PROPFIND, PROPPATCH, COPY"
+                (get-in (handler (ring :delete "/dav/state.edn")) [:headers "Allow"])))
          (is (= ["state.edn"] (keys @documents)))
          (is (not (str/includes? (get-in (handler (ring :options "/dav/")) [:headers "Allow"]) "DELETE")))))))
 
@@ -297,7 +316,8 @@
            handler   (server/handler (dissoc (store/memory documents) :put) "/dav/")]
        (is (= "{}" (:body (handler (ring :get "/dav/a.edn")))))
        (is (= 405 (:status (handler (ring :put "/dav/a.edn" :body "{:x 1}")))))
-       (is (= "OPTIONS, GET, HEAD, DELETE, PROPFIND" (get-in (handler (ring :put "/dav/a.edn" :body "x")) [:headers "Allow"])))
+       (is (= "OPTIONS, GET, HEAD, DELETE, PROPFIND, PROPPATCH"
+              (get-in (handler (ring :put "/dav/a.edn" :body "x")) [:headers "Allow"])))
        (is (= {"a.edn" {:body "{}" :version "1"}} @documents)))))
 
 #?(:clj

@@ -6,15 +6,15 @@
   the version. If-Match makes a put conditional, and If-None-Match: * asks
   for a document that isn't there yet. HEAD asks for the ETag when a
   server answers a put without one, and MKCOL makes the collection when it
-  isn't there.
+  isn't there. webdav-clj makes the requests and reads the answers.
 
   In a browser, the server must let the page through CORS and expose the
   ETag."
   (:require [clojure.string :as str]
-            [dk.simongray.qname-hiccup :as xml]
             [dk.simongray.wary-fetch :as http]
             [dk.simongray.wary-fetch.async :as async]
-            [dk.simongray.wary-fetch.url :as url]))
+            [dk.simongray.wary-fetch.url :as url]
+            [dk.simongray.webdav :as dav]))
 
 (def calls
   "The calls that a store makes to a collection:
@@ -24,15 +24,6 @@
   - :head, for the version of one document
   - :make-collection, for the collection itself"
   #{:list :fetch :put :delete :head :make-collection})
-
-;; RFC 4918, section 9.1
-(def ^:no-doc propfind-body
-  "The properties that a listing asks for: the ETag, and whether an entry
-  is a collection."
-  (str "<?xml version=\"1.0\" encoding=\"utf-8\"?>"
-       "<d:propfind xmlns:d=\"DAV:\">"
-       "<d:prop><d:getetag/><d:resourcetype/></d:prop>"
-       "</d:propfind>"))
 
 (def default-content-types
   "The Content-Type of a document by the extension of its name, unless the
@@ -81,70 +72,31 @@
    (request call root name {}))
   ([call root name {:keys [credentials body content-types] :as opts}]
    {:pre [(map? opts)]}
-   (let [auth        (http/authorization credentials)
-         headers     (cond-> {}
-                       auth (assoc "Authorization" auth))
-         url         (str root (url/percent-encode name))
-         version     (:if-version opts)
-         listing     (assoc headers
-                            "Depth"        "1"
-                            "Content-Type" "application/xml; charset=utf-8")
-         put-headers (fn []
-                       (let [media (content-type name content-types)]
-                         (cond-> (assoc headers "Content-Type" media)
-                           (contains? opts :if-version)
-                           (assoc (if version "If-Match" "If-None-Match")
-                                  (or version "*")))))
-         [method url headers body]
-         (case call
-           :list            [:propfind root listing propfind-body]
-           :fetch           [:get url headers nil]
-           :head            [:head url headers nil]
-           :put             [:put url (put-headers) body]
-           :delete          [:delete url headers nil]
-           :make-collection [:mkcol root headers nil]
-           (throw (ex-info (str "A call a store does not make: " call)
-                           {:call call})))]
-     (cond-> {:method method :url url :headers headers}
-       (some? body)          (assoc :body body)
-       (= :bytes (:as opts)) (assoc :as :bytes)))))
+   (let [url     (str root (url/percent-encode name))
+         version (:if-version opts)
+         common  {:credentials credentials}]
+     (case call
+       :list            (dav/request :propfind root (assoc common
+                                                           :depth 1
+                                                           :props [:dav/getetag :dav/resourcetype]))
+       :fetch           (dav/request :get url (cond-> common
+                                                (= :bytes (:as opts)) (assoc :as :bytes)))
+       :head            (dav/request :head url common)
+       :put             (dav/request :put url (cond-> (assoc common
+                                                             :body         body
+                                                             :content-type (content-type name content-types))
+                                                (contains? opts :if-version)
+                                                (assoc (if version :if-match :if-none-match)
+                                                       (or version "*"))))
+       :delete          (dav/request :delete url common)
+       :make-collection (dav/request :mkcol root common)
+       (throw (ex-info (str "A call a store does not make: " call)
+                       {:call call}))))))
 
-(def ^:no-doc uri->alias
-  "The alias of WebDAV's namespace, :d, so that a multistatus reads the
-  same whatever prefix a server wrote."
-  {"DAV:" :d})
-
-(defn- document-name
-  "The name of the document that `href` addresses: its last path segment,
-  decoded."
-  [href]
-  (-> (url/without-trailing-slashes href)
-      (str/split #"/")
-      last
-      url/percent-decode))
-
-(defn- entries
-  "The entries of the multistatus `body`, as maps of :href, :etag and
-  :collection?."
-  [body]
-  (let [etag        (fn [prop]
-                      (some-> (xml/element prop :d/getetag)
-                              xml/text
-                              str/trim
-                              not-empty))
-        collection? (fn [prop]
-                      (some-> (xml/element prop :d/resourcetype)
-                              (xml/element :d/collection)))]
-    (for [r (xml/elements (xml/parse body uri->alias) :d/response)
-          :let [href  (some-> (xml/element r :d/href) xml/text str/trim)
-                props (for [ps (xml/elements r :d/propstat)
-                            :let [p (xml/element ps :d/prop)]
-                            :when p]
-                        p)]
-          :when href]
-      {:href        href
-       :etag        (some etag props)
-       :collection? (boolean (some collection? props))})))
+(def ^:no-doc call-methods
+  "The method of WebDAV that each call makes."
+  {:list :propfind :fetch :get :head :head :put :put :delete :delete
+   :make-collection :mkcol})
 
 ;; RFC 4918, sections 9.1.1 (207), 9.3.1 (405 for MKCOL) and 9.7.1 (409
 ;; for a put without its collection)
@@ -160,23 +112,24 @@
     there
   - :delete and :make-collection, nil
 
-  Any other status throws ::failed with the :status."
-  [call {:keys [status headers body] :as answer}]
-  (let [etag    (first (get headers "etag"))
-        fail    (fn []
-                  (throw (ex-info (str "The server answered " status " to "
-                                       (name call))
-                                  {:type ::failed :call call :status status})))
-        folder? #(or (:collection? %) (str/ends-with? (:href %) "/"))
-        listed  (fn [{:keys [href etag]}]
-                  {:name (document-name href) :version etag})]
+  Any other status throws ::failed with the :status, and so does a
+  listing that can't be read."
+  [call {:keys [status] :as answer}]
+  (let [{:keys [etag body resources malformed?]} (dav/parse-response {:method (call-methods call)} answer)
+        fail (fn []
+               (throw (ex-info (str "The server answered " status " to "
+                                    (name call))
+                               {:type ::failed :call call :status status})))]
     (case call
       :list            (case status
-                         207 (->> (entries body)
-                                  (remove folder?)
-                                  (map listed)
-                                  (sort-by :name)
-                                  vec)
+                         207 (if malformed?
+                               (fail)
+                               (->> resources
+                                    (remove :collection?)
+                                    (filter :name)
+                                    (map (fn [{:keys [name etag]}] {:name name :version etag}))
+                                    (sort-by :name)
+                                    vec))
                          404 []
                          (fail))
       :fetch           (case status

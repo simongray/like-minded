@@ -1,12 +1,13 @@
 {:paths ["src"]
 
  ;; Clojure 1.11 is the floor, and the tests run on it unless an alias says
- ;; otherwise. mind-meld merges the states, wary-fetch sends the requests of
- ;; the WebDAV store, and qname-hiccup reads the listings of a collection.
- :deps  {org.clojure/clojure       {:mvn/version "1.11.4"}
-         dk.simongray/wary-fetch   {:mvn/version "0.5.0"}
-         dk.simongray/qname-hiccup {:mvn/version "0.3.0"}
-         dk.simongray/mind-meld    {:mvn/version "0.3.0"}}
+ ;; otherwise. mind-meld merges the states, webdav-clj makes the requests of
+ ;; the WebDAV store and serves a store over WebDAV, and wary-fetch sends
+ ;; the requests.
+ :deps  {org.clojure/clojure     {:mvn/version "1.11.4"}
+         dk.simongray/wary-fetch {:mvn/version "0.10.0"}
+         dk.simongray/webdav-clj {:mvn/version "0.1.0"}
+         dk.simongray/mind-meld  {:mvn/version "0.3.0"}}
 
  :aliases
  {;; clojure -X:test

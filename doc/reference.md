@@ -337,8 +337,9 @@ The WebDAV store takes its `:credentials` as a map of a `:username` and a
 map, so that you can refresh a token that expires. OAuth flows are up to
 you, and nothing that a sync returns or reports contains the credentials.
 
-- The store doesn't send a user name or password from the URL, such as
-  `https://user:pass@host/`, and its name is the host alone.
+- The store refuses to send a request to a URL with a user name or
+  password in it, such as `https://user:pass@host/`, as fetch does, and
+  its name is the host alone.
 - On the JVM, the credentials only go to the origin of the collection,
   never to another host after a redirect.
 - In a browser, the server must let the page through CORS, and expose
@@ -347,15 +348,19 @@ you, and nothing that a sync returns or reports contains the credentials.
 ### A WebDAV server
 
 On the JVM, `store.webdav.server/handler` serves any store over WebDAV as
-a Ring handler:
+a Ring handler, with the handler of
+[webdav-clj](https://github.com/simongray/webdav-clj):
 
 - A PROPFIND on the collection at depth 0 gives the collection alone, and
-  at depth 1 it also lists the documents.
+  at depth 1 or without a Depth it also lists the documents. A GET of the
+  collection gives a page of links to them, for a browser.
 - If the store has no `:list`, a PROPFIND that lists the collection gets
   403. If it has no `:put` or no `:delete`, a PUT or a DELETE gets 405,
   and OPTIONS doesn't offer it. A 405 names the allowed methods in
   `Allow`.
-- MKCOL gets 405, since the collection already exists.
+- MKCOL gets 405, since the collection already exists, and a path below
+  it, e.g. `/dav/sub/x.edn`, gets 409. COPY and MOVE copy or rename a
+  document within the collection.
 - A client of such a server removes the same keys from its WebDAV store,
   e.g. `(dissoc (webdav/store url) :list)`, and the backend then uses one
   shared document.
@@ -363,8 +368,8 @@ a Ring handler:
   larger body gets 413.
 - A PUT with `If-Match: *` matches the document if it exists, and gets 412
   if it doesn't.
-- A name with a slash or a control character, and the names `.` and `..`,
-  get 400.
+- A name with a slash or a control character, the names `.` and `..`,
+  and a name that the store refuses get 400.
 
 The handler checks no credentials, so mount it behind your login. On a
 site with many users, give each a handler over the store of their own

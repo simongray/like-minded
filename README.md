@@ -256,9 +256,9 @@ Principles
   protocols, so wrapping one is updating a key, and the credentials stay
   in the closure of the constructor.
 - **One codebase.** The library is written in `.cljc`, and depends on
-  mind-meld, [wary-fetch](https://github.com/simongray/wary-fetch) for the
-  requests of WebDAV, and [qname-hiccup](https://github.com/simongray/qname-hiccup)
-  for its listings.
+  mind-meld, [webdav-clj](https://github.com/simongray/webdav-clj) for
+  WebDAV, and [wary-fetch](https://github.com/simongray/wary-fetch) to
+  send its requests.
 
 Development
 -----------
