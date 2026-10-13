@@ -22,7 +22,40 @@
   its credentials, so they're never in the map, and you wrap a store by
   updating a key."
   (:require [dk.simongray.like-minded.bytes :as bytes]
-            [dk.simongray.wary-fetch.async :as async]))
+            [dk.simongray.wary-fetch.async :as async])
+  #?(:clj (:import [java.util.concurrent ConcurrentHashMap]
+                   [java.util.concurrent.locks ReentrantLock]
+                   [java.util.function Function])))
+
+(defonce ^{:no-doc true
+           :doc    "The puts under way, so that a put checks the version and
+  writes in one step: a lock for each key on the JVM, and in ClojureScript
+  the last put to each key, where the platform has no Web Locks."}
+  locks
+  #?(:clj (ConcurrentHashMap.) :cljs (atom {})))
+
+;; Web Locks API, W3C Working Draft of 24 September 2025, section 3.2.1
+(defn ^:no-doc exclusively
+  "The result of `f`, called when no other call for the key `k` is under
+  way in this process, or in any tab of this site in a browser, where the
+  key names a Web Lock."
+  [k f]
+  #?(:clj  (let [new-lock (reify Function
+                            (apply [_ _] (ReentrantLock.)))
+                 held     ^ConcurrentHashMap locks
+                 l        ^ReentrantLock (.computeIfAbsent held k new-lock)]
+             (.lock l)
+             (try
+               (f)
+               (finally
+                 (.unlock l))))
+     :cljs (if-let [web-locks (some-> js/globalThis .-navigator .-locks)]
+             (.request web-locks k (fn [_] (f)))
+             (let [before  (get @locks k (js/Promise.resolve))
+                   result  (.then before (fn [_] (f)))
+                   settled (.then result (constantly nil) (constantly nil))]
+               (swap! locks assoc k settled)
+               result))))
 
 (defn memory
   "A store over the atom `documents`, or a fresh one, which holds the :body

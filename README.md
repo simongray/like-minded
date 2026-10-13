@@ -48,7 +48,7 @@ from [Clojars](https://clojars.org/dk.simongray/like-minded) to the
 `:deps` in your `deps.edn`:
 
 ```clojure
-dk.simongray/like-minded {:mvn/version "0.2.0"}
+dk.simongray/like-minded {:mvn/version "0.3.0"}
 ```
 
 For changes that aren't released yet, use the SHA of the latest commit on
@@ -172,8 +172,10 @@ A store is a map of functions over named documents with versions, and
 |---|---|---|
 | A map in an atom | `store/memory` | all |
 | A folder | `store.folder` | the JVM, Node, and a browser through `showDirectoryPicker` or the files of an input |
+| A folder of the app's own adapter, e.g. over expo-file-system | `store.folder` | all |
 | A WebDAV collection | `store.webdav` | all |
 | An IndexedDB database | `store.indexeddb` | a browser |
+| A key-value store of the app's own adapter, e.g. MMKV or expo-sqlite | `store.kv` | all |
 | Any store, encrypted | `store.encrypted` | all |
 
 To try a store through its contract, e.g. from a button in the settings,

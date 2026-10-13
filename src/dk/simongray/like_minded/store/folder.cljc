@@ -34,43 +34,11 @@
   (:require #?(:clj [clojure.java.io :as io])
             [clojure.string :as str]
             [dk.simongray.like-minded.bytes :as bytes]
+            [dk.simongray.like-minded.store :as store]
             [dk.simongray.wary-fetch.async :as async])
   #?(:clj (:import [java.io File FileNotFoundException]
                    [java.nio.file
-                    CopyOption Files LinkOption OpenOption StandardCopyOption]
-                   [java.util.concurrent ConcurrentHashMap]
-                   [java.util.concurrent.locks ReentrantLock]
-                   [java.util.function Function])))
-
-(defonce ^{:no-doc true
-           :doc    "The puts under way, so that a put checks the version and
-  writes in one step: a lock for each file by its canonical path on the
-  JVM, and in ClojureScript the last put to each file, where the platform
-  has no Web Locks."}
-  locks
-  #?(:clj (ConcurrentHashMap.) :cljs (atom {})))
-
-(defn- exclusively
-  "The result of `f`, called when no other put to the file `k` is under way
-  in this process, or in any tab of this site in a browser."
-  [k f]
-  #?(:clj  (let [new-lock (reify Function
-                            (apply [_ _] (ReentrantLock.)))
-                 held     ^ConcurrentHashMap locks
-                 l        ^ReentrantLock (.computeIfAbsent held k new-lock)]
-             (.lock l)
-             (try
-               (f)
-               (finally
-                 (.unlock l))))
-     :cljs (if-let [web-locks (some-> js/globalThis .-navigator .-locks)]
-             (.request web-locks (str "dk.simongray.like-minded.store.folder/" k)
-                       (fn [_] (f)))
-             (let [before  (get @locks k (js/Promise.resolve))
-                   result  (.then before (fn [_] (f)))
-                   settled (.then result (constantly nil) (constantly nil))]
-               (swap! locks assoc k settled)
-               result))))
+                    CopyOption Files LinkOption OpenOption StandardCopyOption])))
 
 #?(:clj
    (defn- version
@@ -331,12 +299,50 @@
     {:name   (:name folder)
      :fetch  (fn [name opts] (read (plain name) opts))
      :put    (fn [name body opts]
-               (exclusively (lock-key (plain name))
-                            #(put! name body opts)))
+               (store/exclusively (str "dk.simongray.like-minded.store.folder/"
+                                       (lock-key (plain name)))
+                                  #(put! name body opts)))
      :list   (fn []
                (async/then (files)
                            #(->> % (remove hidden?) (sort-by :name) vec)))
      :delete (fn [name] (delete (plain name)))}))
+
+(defn- adapter-folder
+  "The operations of a store on the folder that the app's `adapter` reads
+  and writes. A version is the modification time and the size of a file,
+  as the adapter's :stat gives them."
+  [{:keys [read write stat names] :as adapter}]
+  (let [version  #(when % (str (:modified %) "-" (:size %)))
+        version! #(async/then (stat %) version)
+        lock-id  (str (random-uuid))]
+    {:name     (or (:name adapter) "folder")
+     :lock-key #(str lock-id "/" %)
+     :files    (fn []
+                 (async/then
+                  (names)
+                  (fn [found]
+                    (async/then
+                     (async/all (fn [name]
+                                  (async/then (version! name)
+                                              #(when % {:name name :version %})))
+                                found)
+                     #(filterv some? %)))))
+     ;; the version before the body: a file replaced in between is read
+     ;; again by the next sync, rather than taken as the version before
+     :read     (fn [name opts]
+                 (async/then (version! name)
+                             (fn [v]
+                               (when v
+                                 (async/then (read name)
+                                             #(when %
+                                                {:body    (bytes/as % (:as opts))
+                                                 :version v}))))))
+     :version  version!
+     :write    (fn [name body]
+                 (async/then (write name (bytes/as body :bytes))
+                             (fn [_] (version! name))))
+     :delete   (fn [name]
+                 (async/then ((:delete adapter) name) (constantly nil)))}))
 
 #?(:cljs
    (defn- loaded?
@@ -375,14 +381,31 @@
 
 (defn store
   "The store over the folder `dir`: a path, or in a browser a directory
-  handle or the files of an input.
+  handle or the files of an input, or an adapter that the app gives.
 
   A directory at a path is made on the first write, and hidden files
   aren't documents. The files of an input are read only, so their store
-  has no put or delete."
+  has no put or delete.
+
+  An adapter is a map of functions over the files of a folder, for a
+  platform that this namespace doesn't know, e.g. expo-file-system in
+  React Native. Each can give its value or a promise:
+
+      {:read   (fn [name])        ; the bytes of the file, or nil
+       :write  (fn [name bytes])  ; the file written whole
+       :stat   (fn [name])        ; {:modified ms :size n}, or nil
+       :names  (fn [])            ; the names of the files
+       :delete (fn [name])
+       :name   \"Documents\"}       ; for the UI and the report
+
+  A version is the modification time and the size of a file, so it tells
+  two writes apart as finely as the adapter's time does."
   [dir]
-  #?(:clj  (folder-store (jvm-folder dir))
+  #?(:clj  (if (map? dir)
+             (folder-store (adapter-folder dir))
+             (folder-store (jvm-folder dir)))
      :cljs (cond
+             (map? dir)    (folder-store (adapter-folder dir))
              (string? dir) (folder-store (node-folder dir))
              (loaded? dir) (loaded-store dir)
              :else         (folder-store (handle-folder dir)))))

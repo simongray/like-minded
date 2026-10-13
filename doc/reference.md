@@ -281,6 +281,7 @@ The store of `store.encrypted` wraps each body in this EDN map:
 | A folder | `store.folder` | all | the modification time, as exact as the file system keeps it, and the size |
 | A WebDAV collection | `store.webdav` | all | the ETag |
 | An IndexedDB database | `store.indexeddb` | a browser | a count of the writes |
+| A key-value store of the app | `store.kv` | all | a count of the writes |
 | Any store, encrypted | `store.encrypted` | all | the version of the wrapped store |
 
 ### A folder
@@ -307,6 +308,27 @@ drop:
   for a folder that the browser can't write to.
 - The name of a document is a plain file name, with no slash, and a
   hidden file isn't a document, so the store doesn't list one.
+- On another platform, e.g. React Native, the store takes a map of
+  functions that read, write, stat, list and delete the files of a
+  folder, which `folder/store` describes. The version token is the
+  modification time and the size that the map's `:stat` gives.
+
+### A key-value store
+
+The key-value store takes a map of the functions of a store of the app,
+e.g. MMKV, the key-value store of expo-sqlite or AsyncStorage:
+
+- A document is one value, under its name after the `:prefix` of the
+  options, `like-minded/` by default, so the store leaves the app's other
+  keys alone and lists only its own.
+- The value holds the version and whether the body is text or bytes on
+  its first line, then the text, or the bytes in base64.
+- A put that checks a version writes while no other put of the process
+  writes that document. Two processes of the app, e.g. the app and a
+  background task, can still race, since a key-value store has no
+  transaction.
+- Without the map's `:keys`, the store has no `:list`, and a backend over
+  it uses one shared document.
 
 ### A WebDAV collection
 

@@ -111,6 +111,42 @@
          #(async/then (names! @dir) (fn [names] (is (empty? names) "the probe is gone")))
          #(remove-folder! @dir))))
 
+(defn- adapter
+  "An adapter over the atom `files`, of a file system whose clock ticks
+  once for each write, as the app of a platform gives it."
+  [files]
+  (let [clock (atom 0)]
+    {:read   #(:bytes (get @files %))
+     :write  (fn [name b]
+               (swap! files assoc name {:bytes b :modified (swap! clock inc) :size (bytes/length b)}))
+     :stat   #(some-> (get @files %) (select-keys [:modified :size]))
+     :names  #(keys @files)
+     :delete #(swap! files dissoc %)
+     :name   "Documents"}))
+
+(deftest a-folder-of-an-adapter
+  (let [files (atom {})
+        s     (folder/store (adapter files))
+        call  (fn [k & args] (apply (get s k) args))]
+    (run #(async/then (store/check! s)
+                      (fn [{:keys [ok? checks]}]
+                        (is ok? (pr-str checks))
+                        (is (= "Documents" (:name s)))))
+         #(async/then (call :put "a.edn" "one" {})
+                      (fn [{:keys [version]}]
+                        (is (= "2-3" version) "the time and the size of the file, after the probe's write")
+                        (is (= "one" (bytes/decode (get-in @files ["a.edn" :bytes]))) "a body kept as the file itself")))
+         #(async/then (call :put "a.edn" "two" {:if-version "1-3"})
+                      (fn [put] (is (= {:conflict? true} put))))
+         #(async/then (call :fetch "a.edn" {})
+                      (fn [doc] (is (= {:body "one" :version "2-3"} doc))))
+         #(async/then (call :fetch "a.edn" {:as :bytes})
+                      (fn [{:keys [body]}] (is (bytes/same? (bytes/encode "one") body))))
+         #(async/then (call :list)
+                      (fn [docs] (is (= [{:name "a.edn" :version "2-3"}] docs))))
+         #(is (thrown? #?(:clj Exception :cljs :default) (call :put "../a.edn" "x" {}))
+              "a plain file name, as in any folder"))))
+
 (deftest two-devices-through-a-folder
   (let [dir     (atom nil)
         phone   (atom nil)
