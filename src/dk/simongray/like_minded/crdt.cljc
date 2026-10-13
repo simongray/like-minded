@@ -18,7 +18,8 @@
   sync without a CRDT fails before it starts."
   [{:keys [schema crdt] :as opts}]
   (let [fns (merge (some-> schema schema-functions) crdt)]
-    (when-not (every? (comp fn? fns) [:merge :compact :problem])
+    ;; fns is nil without either, so it's looked up rather than called
+    (when-not (every? #(fn? (get fns %)) [:merge :compact :problem])
       (throw (ex-info (str "A sync needs the :schema of a state of mind-meld, "
                            "or the :merge, :compact and :problem functions of "
                            "its :crdt")

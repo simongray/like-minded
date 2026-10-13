@@ -346,7 +346,10 @@
   promise. The `opts` are the options of the state, whose CRDT merges,
   and these:
 
-  - :at, the instant of the step, the time of the clock by default
+  - :at, the instant of the step, the time of the clock by default. A
+    document written more than a minute after it reports
+    :sync/clock-skew, so a fixed :at in the past, e.g. in a test or a
+    replay, reports it for the document of every other device.
   - :cursors and :failures, those of the last step
   - :compact, false to keep the tombstones that every device has seen, or
     else the options of the compact function of the CRDT

@@ -80,6 +80,9 @@
             fetched [{:name "laptop.edn" :body (document/encode (laptop-notes) t2)}]]
         (is (= "Buy eggs" (text (:state (sync/reconcile (phone-notes) fetched t2 mine)) "eggs"))
             "the laptop's later change is left out by the :merge of :crdt")))
+    (testing "and without either, a sync says what it needs"
+      (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo) #"needs the :schema"
+                            (sync/reconcile {:device "me"} fetched t2 {}))))
     #?(:clj
        (let [shared   (store/memory)
              backend  #(sync/backend shared {:crdt counter})
