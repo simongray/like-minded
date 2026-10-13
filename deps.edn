@@ -5,8 +5,8 @@
  ;; the WebDAV store and serves a store over WebDAV, and wary-fetch sends
  ;; the requests.
  :deps  {org.clojure/clojure     {:mvn/version "1.11.4"}
-         dk.simongray/wary-fetch {:mvn/version "0.10.0"}
-         dk.simongray/webdav-clj {:mvn/version "0.1.0"}
+         dk.simongray/wary-fetch {:mvn/version "0.11.0"}
+         dk.simongray/webdav-clj {:mvn/version "0.1.1"}
          dk.simongray/mind-meld  {:mvn/version "0.3.0"}}
 
  :aliases
