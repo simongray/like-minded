@@ -43,25 +43,20 @@ The same code runs on the JVM, in Node and in the browser.
 Getting started
 ---------------
 
-It requires Clojure 1.11+ and Java 11+. For the latest release, add it
-from [Clojars](https://clojars.org/dk.simongray/like-minded) to the
-`:deps` in your `deps.edn`:
+It requires Clojure 1.11+ and Java 11+. Add it from
+[Clojars](https://clojars.org/dk.simongray/like-minded) to the `:deps` in
+your `deps.edn`:
 
 ```clojure
 dk.simongray/like-minded {:mvn/version "0.4.2"}
 ```
 
-For changes that aren't released yet, use the SHA of the latest commit on
-`master` instead:
+For unreleased changes, depend on the latest commit on `master` instead.
+In shadow-cljs, a Git dependency only works through `deps.edn`, so set
+`:deps true` in your `shadow-cljs.edn` too.
 
-```clojure
-dk.simongray/like-minded
-{:git/url "https://github.com/simongray/like-minded"
- :git/sha "…"}
-```
-
-For ClojureScript, shadow-cljs only reads Git dependencies from
-`deps.edn`, so also set `:deps true` in your `shadow-cljs.edn`.
+Syncing
+-------
 
 The state of each device is a state of mind-meld, and the options of the
 state say what it is. Give them to the backend and to each sync:
@@ -259,16 +254,6 @@ Principles
   mind-meld, [webdav-clj](https://github.com/simongray/webdav-clj) for
   WebDAV, and [wary-fetch](https://github.com/simongray/wary-fetch) to
   send its requests.
-
-Versions
---------
-
-Until 1.0, a release that changes the API gets a new minor version, e.g.
-from 0.4.2 to 0.5.0, and one that only fixes gets a new patch version,
-e.g. from 0.4.2 to 0.4.3. A function that's renamed or removed goes
-without a deprecated alias, and the commit of each release says what
-changed. The tests run in CI on Java 11 and 25, in Node and in a
-headless Chrome.
 
 Development
 -----------
