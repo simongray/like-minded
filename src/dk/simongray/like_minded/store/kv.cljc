@@ -12,11 +12,11 @@
        :keys   (fn [])           ; every key, for a listing, optional
        :name   \"MMKV\"}           ; for the UI and the report
 
-  E.g. over MMKV, whose functions answer at once:
+  E.g. over MMKV 4, from createMMKV, whose functions answer at once:
 
       (kv/store {:get    #(.getString mmkv %)
                  :set    #(.set mmkv %1 %2)
-                 :delete #(.delete mmkv %)
+                 :delete #(.remove mmkv %)
                  :keys   #(.getAllKeys mmkv)
                  :name   \"MMKV\"})
 
