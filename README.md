@@ -101,17 +101,23 @@ the same folder writes `laptop.edn`, and merges in the phone's notes:
 ;; => ("bread" "milk")
 ```
 
-A step returns the merged `:state`, a `:report` of what it found, its
-`:at`, and the `:cursors` of the backends and the `:failures` in a row,
-which the next step of the device takes:
+A step gives back a map of:
+
+- `:state`, the merged state
+- `:report`, what the step found
+- `:at`, the instant of the step
+- `:cursors`, how far each backend got, and `:failures`, the failures in
+  a row
+
+Give the cursors and the failures to the next step of the device:
 
 ```clojure
 (like-minded/sync! (:state step) [dropbox]
                    (merge opts (select-keys step [:cursors :failures])))
 ```
 
-In ClojureScript, `sync!` returns a promise. The user may have changed
-the state during the step, so give the step to `finish` with the state as
+In ClojureScript, `sync!` returns a promise, and the user can change the
+state while the step runs. So give the step to `finish` with the state as
 it is by then, which merges the two and compacts them as the step did:
 
 ```clojure
@@ -119,19 +125,21 @@ it is by then, which merges the two and compacts them as the step did:
 ;; => ("milk")
 ```
 
-Then call `next-sync` for when to sync again.
+Then ask `next-sync` when to sync again.
 
 When to sync
 ------------
 
 Call `sync!` when the app starts, when it goes to the background, after a
 series of changes, and when a file watcher or a service says that
-something changed. A step that overlaps another can write an older state
-after a newer one, so a step that begins while another step of the
-device is running does nothing, and its report has
+something changed.
+
+One step of a device runs at a time, since a step that overlaps another
+can write an older state after a newer one. A step that begins while
+another is running does nothing, and its report says
 `:sync/overlapping-step`. That holds within a process, and in a browser
-across the tabs of a page too. A file watcher also sees the writes of
-the step itself, so let such a call wait until the step ends.
+across the tabs of a page too. A file watcher also sees the writes of a
+step, so let a call that it makes wait until the step ends.
 
 For when to sync again, give `next-sync` the last step, with its `:at`
 and `:failures`, and whether the state has `:changed?` since:
@@ -147,14 +155,17 @@ nothing changed, and grow with each failure. Give waits of your own as
 the third argument.
 
 For control over the I/O, e.g. in a background task with a time budget,
-`reconcile` merges the documents that you fetch yourself, as the
+merge the documents that you fetch yourself with `reconcile`, as the
 [reference](doc/reference.md#a-step) describes.
 
+Leaving
+-------
+
 To turn sync off on a device, call `leave!`, which takes what `sync!`
-takes. It retires the device and writes that through each backend once
-more. The other devices read it at their next step, stop waiting for the
-device before they compact, and delete its document. A retired device
-can't come back, so to sync it again later, give its state a new
+takes. It retires the device, and writes that through each backend once
+more. At their next step, the other devices read it, stop waiting for
+the device before they compact, and delete its document. A retired
+device can't come back, so to sync it again later, give its state a new
 `:device`.
 
 Stores
@@ -210,11 +221,14 @@ The options of a state
   through the same folder don't merge each other's states
 - `:codec`, how a document is encoded, EDN by default
 
-A backend also takes the `:app` to write into each document, an
-`:extra-documents-fn` that gives documents to write beside the state,
-e.g. for other apps to read, and the `:strategy` and `:direction` that
-it otherwise takes from the store. The
-[reference](doc/reference.md#the-options) has the defaults of each.
+A backend also takes these:
+
+- `:app`, the name of the app, to write into each document
+- `:extra-documents-fn`, which gives documents to write beside the
+  state, e.g. for other apps to read
+- `:strategy` and `:direction`, which it otherwise takes from the store
+
+The [reference](doc/reference.md#the-options) has the defaults of each.
 
 A backend of your own
 ---------------------
@@ -228,9 +242,9 @@ a `:pull` and a `:push`:
  :name "my-service"}
 ```
 
-A pull that gives only the changes since its cursor says so with
-`:partial?`, and they merge like any other state. A `:leave` that writes
-the state of a device that leaves is optional. The
+A pull that gives only the changes since its cursor marks them
+`:partial?`, and they merge like any other state. A backend can also have
+a `:leave`, which writes the state of a device that leaves. The
 [reference](doc/reference.md#the-backend-contract) has the whole
 contract.
 
