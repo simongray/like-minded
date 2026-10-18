@@ -34,11 +34,19 @@
   locks
   #?(:clj (ConcurrentHashMap.) :cljs (atom {})))
 
-;; Web Locks API, W3C Working Draft of 24 September 2025, section 3.2.1
-(defn ^:no-doc exclusively
+;; Web Locks API, W3C Working Draft of 24 September 2025, section 3.2.1: the
+;; lock is held until the promise of the callback settles, and a request
+;; for a lock that the same context holds waits for it.
+(defn exclusively
   "The result of `f`, called when no other call for the key `k` is under
-  way in this process, or in any tab of this site in a browser, where the
-  key names a Web Lock."
+  way in this process, or in any tab or worker of the site in a browser,
+  where the key names a Web Lock. In ClojureScript, `f` can give a
+  promise, which the lock waits for.
+
+  Use it around a change that takes many writes, e.g. a save of many
+  documents, so that the other contexts of the site never read half of
+  it. A call within `f` for the same key never runs in a browser, since a
+  Web Lock isn't reentrant."
   [k f]
   #?(:clj  (let [new-lock (reify Function
                             (apply [_ _] (ReentrantLock.)))

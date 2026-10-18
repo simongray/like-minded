@@ -62,7 +62,8 @@
   cursor, and deletes the documents of the other retired devices. That of
   a device that retires itself stays, for the others to read."
   [{:keys [put delete] :as store} opts state {:keys [versions] :as cursor} at]
-  (let [own     (document/for-device state at opts)
+  (let [state   (document/without-replica state)
+        own     (document/for-device state at opts)
         written (hash state)
         named   #(document/name-of % opts)
         listed? #(contains? versions (named %))

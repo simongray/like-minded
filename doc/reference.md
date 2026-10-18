@@ -223,6 +223,11 @@ A document is an EDN map, unless the options give another codec:
   e.g. with tagged literals, gives a codec of its own, and so does one
   that writes JSON, which has to map the keys that JSON can't hold, such
   as vectors.
+- `dk.simongray.like-minded.transit/codec` holds the same as EDN, and
+  reads about 30 times faster in ClojureScript, with the extension
+  `.transit.json`. It needs Transit in the deps of the app.
+- The state is written without its `:replica`, which only the tab or
+  worker that writes it knows.
 - The version only changes when the meaning of an existing key changes.
   The merge of mind-meld handles keys it doesn't know by the shape of
   their values, so a state can grow without a new version.

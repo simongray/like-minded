@@ -207,6 +207,30 @@ The [reference](doc/reference.md#the-stores) has the version token of
 each store and what it takes, and [Providers](doc/providers.md) lists
 where the common WebDAV servers and sync clients keep their folders.
 
+Tabs and workers
+----------------
+
+The tabs and workers of a web app write one device's state at the same
+time, in the storage they share, e.g. IndexedDB. Each needs an id of its
+own, since they'd lose each other's counts with one, and
+`dk.simongray.like-minded.replica` gives them one:
+
+```clojure
+(require '[dk.simongray.like-minded.replica :as replica]
+         '[dk.simongray.mind-meld :as crdt])
+
+(.then (replica/lease! device)
+       (fn [{:keys [name]}]
+         (swap! app update :state crdt/with-replica name)))
+```
+
+The lease is a Web Lock, which the browser lets go when the tab closes,
+and the next tab takes the name again. To save, hold
+`store/exclusively` while you catch up with what the others saved, with
+`crdt/rebase`, and write. Then tell the others on a `replica/channel`
+with `replica/announce!`, so that they catch up too, from
+`replica/listen!`.
+
 The options of a state
 ----------------------
 
@@ -219,7 +243,10 @@ The options of a state
   version.
 - `:kind`, what state the documents hold, so that two apps that sync
   through the same folder don't merge each other's states
-- `:codec`, how a document is encoded, EDN by default
+- `:codec`, how a document is encoded, EDN by default. In ClojureScript,
+  EDN reads slowly, so prefer `dk.simongray.like-minded.transit/codec`,
+  which reads about 30 times faster, once your app has Transit in its
+  deps.
 
 A backend also takes these:
 
