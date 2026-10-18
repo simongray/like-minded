@@ -61,19 +61,22 @@
         (letfn [(attempt [n]
                   (let [release (atom nil)
                         held    (js/Promise. #(reset! release %))
-                        granted (atom nil)
-                        request (.request locks (lock-name name n)
-                                          #js {:ifAvailable true}
-                                          (fn [lock]
-                                            (if lock
-                                              (do (resolve @granted)
-                                                  held)
-                                              (do (attempt (inc n))
-                                                  nil))))]
-                    ;; the request settles once the lock has gone
-                    (reset! granted {:name     (str n)
-                                     :release! #(do (@release nil) request)})
-                    (.catch request reject)))]
+                        request (atom nil)
+                        ;; the request settles once the lock has gone
+                        granted {:name     (str n)
+                                 :release! #(do (@release nil) @request)}]
+                    ;; Node calls back before the request returns, and a
+                    ;; browser later
+                    (reset! request
+                            (.request locks (lock-name name n)
+                                      #js {:ifAvailable true}
+                                      (fn [lock]
+                                        (if lock
+                                          (do (resolve granted)
+                                              held)
+                                          (do (attempt (inc n))
+                                              nil)))))
+                    (.catch @request reject)))]
           (attempt 0))))))
 
 (defn lease!

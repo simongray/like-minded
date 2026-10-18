@@ -22,19 +22,45 @@
            ((:release! l)))))))
 
 #?(:cljs
+   (defn- leases-the-lowest-free-names
+     "A promise of the checks that `lease!` leases the lowest free names of
+     a device, and takes the name of a replica that ended again."
+     [lease!]
+     (-> (js/Promise.all [(lease! "lease-test") (lease! "lease-test")])
+         (.then (fn [[a b]]
+                  (is (= #{"0" "1"} (set (map :name [a b]))))
+                  (let [[zero one] (sort-by :name [a b])]
+                    (-> ((:release! zero))
+                        (.then #(lease! "lease-test"))
+                        (.then (fn [c]
+                                 (is (= "0" (:name c)) "the name of a replica that ended is taken again")
+                                 (js/Promise.all [((:release! c)) ((:release! one))])))))))
+         (.catch #(is false (str %))))))
+
+#?(:cljs
    (deftest leasing-the-names-of-replicas
      (async done
-       (-> (js/Promise.all [(replica/lease! "lease-test") (replica/lease! "lease-test")])
-           (.then (fn [[a b]]
-                    (is (= #{"0" "1"} (set (map :name [a b]))))
-                    (let [[zero one] (sort-by :name [a b])]
-                      (-> ((:release! zero))
-                          (.then #(replica/lease! "lease-test"))
-                          (.then (fn [c]
-                                   (is (= "0" (:name c)) "the name of a replica that ended is taken again")
-                                   (js/Promise.all [((:release! c)) ((:release! one))])))))))
-           (.catch #(is false (str %)))
-           (.finally done)))))
+       (.finally (leases-the-lowest-free-names replica/lease!) done))))
+
+#?(:cljs
+   (defn- granting-at-once
+     "Web Locks that call the callback of a request before the request
+     returns, as Node's do, where a browser calls it later."
+     []
+     (let [held (atom #{})]
+       #js {:request (fn [name _opts f]
+                       (if (contains? @held name)
+                         (js/Promise.resolve (f nil))
+                         (do (swap! held conj name)
+                             (.finally (js/Promise.resolve (f #js {:name name}))
+                                       #(swap! held disj name)))))})))
+
+#?(:cljs
+   (deftest leasing-from-locks-that-grant-at-once
+     (async done
+       (let [locks (granting-at-once)]
+         (.finally (leases-the-lowest-free-names #(#'replica/held-by-lock! locks %))
+                   done)))))
 
 #?(:clj
    (deftest telling-the-other-replicas
