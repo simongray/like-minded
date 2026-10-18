@@ -29,10 +29,11 @@
   held
   (atom {}))
 
-(defn- lock-name
-  "The name of the Web Lock of the replica `n` of `name`."
-  [name n]
-  (str "dk.simongray.like-minded.replica/" name "/" n))
+#?(:cljs
+   (defn- lock-name
+     "The name of the Web Lock of the replica `n` of `name`."
+     [name n]
+     (str "dk.simongray.like-minded.replica/" name "/" n)))
 
 (defn- held-here!
   "The lowest name of a replica of `name` that no replica in this process
@@ -129,12 +130,12 @@
 (defn announce!
   "Tell the other channels of the name of the channel `ch` the `message`,
   data that EDN can print. In ClojureScript, they hear it later."
-  [{:keys [name broadcast] :as ch} message]
+  [{:keys [name] :as ch} message]
   #?(:clj  (doseq [other (get @channels name)
                    :when (not= ch other)
                    f     @(:listeners other)]
              (f message))
-     :cljs (if broadcast
+     :cljs (if-let [broadcast (:broadcast ch)]
              (.postMessage ^js broadcast (pr-str message))
              (doseq [other (get @channels name)
                      :when (not (identical? ch other))
@@ -144,10 +145,10 @@
 (defn listen!
   "Call `f` with each message that another channel tells the channel `ch`,
   and give a function that stops it."
-  [{:keys [listeners broadcast]} f]
+  [{:keys [listeners] :as ch} f]
   #?(:clj  (do (swap! listeners conj f)
                #(swap! listeners disj f))
-     :cljs (if broadcast
+     :cljs (if-let [broadcast (:broadcast ch)]
              (let [on-message (fn [^js e]
                                 (when-let [message (try
                                                      (reader/read-string (.-data e))
@@ -160,9 +161,9 @@
 
 (defn close!
   "Close the channel `ch`, which then neither tells nor hears."
-  [{:keys [name broadcast] :as ch}]
+  [{:keys [name] :as ch}]
   #?(:clj  (swap! channels update name disj ch)
-     :cljs (if broadcast
+     :cljs (if-let [broadcast (:broadcast ch)]
              (.close ^js broadcast)
              (swap! channels update name disj ch))))
 
