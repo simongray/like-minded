@@ -243,6 +243,34 @@ often as the state changes. A state of another shape takes a kind of its
 own, a map of the functions that read, write and catch it up, as
 `replica/open!` describes.
 
+Caching
+-------
+
+A store can also keep what doesn't sync, e.g. the answers of a service
+that your app shows again without asking. `dk.simongray.like-minded.cache`
+keeps each value under a key, with the time it was kept, and drops the
+oldest past a count or an age:
+
+```clojure
+(require '[dk.simongray.like-minded.cache :as cache])
+
+(def searches
+  {:store       (indexeddb/store "my-app-cache")
+   :prefix      "search."
+   :max-count   100
+   :max-seconds (* 30 24 60 60)})
+
+(cache/put! searches [:apple "history"] results)
+(cache/fetch! searches [:apple "history"])
+;; => {:value [...] :at #inst "2026-10-18T12:00:00.000-00:00"}
+```
+
+How fresh a value must be is up to you, e.g. by its `cache/age`. To
+forget them all, e.g. from a button in the settings, call `cache/clear!`.
+The name of each document holds the hash of its key and the time it was
+kept, so dropping the old ones reads no bodies, and several caches can
+share a store by their prefixes.
+
 The options of a state
 ----------------------
 

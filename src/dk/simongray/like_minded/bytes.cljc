@@ -65,6 +65,13 @@
       (catch #?(:clj IllegalArgumentException :cljs :default) _
         nil))))
 
+(defn hex
+  "The bytes `b` in lower-case hexadecimal, two digits for each."
+  [b]
+  #?(:clj  (apply str (map #(format "%02x" (bit-and % 0xff)) b))
+     :cljs (apply str (map #(.padStart (.toString % 16) 2 "0")
+                           (js/Array.from b)))))
+
 (defn encode
   "The text `s` as the bytes of its UTF-8."
   [s]

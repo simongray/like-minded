@@ -1,11 +1,12 @@
 (ns dk.simongray.like-minded.store.indexeddb-test
-  "IndexedDB as a document store, in a browser: the store's contract and
-  bodies of bytes. Node has no IndexedDB, so there the tests check
-  nothing."
+  "IndexedDB as a document store, in a browser: the store's contract,
+  bodies of bytes and a cache over it. Node has no IndexedDB, so there the
+  tests check nothing."
   (:require [clojure.test :refer [deftest is]]
             #?@(:cljs [[dk.simongray.like-minded.bytes :as bytes]
+                       [dk.simongray.like-minded.cache :as cache]
                        [dk.simongray.like-minded.store.indexeddb :as indexeddb]
-                       [dk.simongray.like-minded.test-support :refer [run]]
+                       [dk.simongray.like-minded.test-support :refer [run t0 t1]]
                        [dk.simongray.wary-fetch.async :as async]])))
 
 #?(:cljs
@@ -52,4 +53,23 @@
                     #(async/then ((:list s))
                                  (fn [docs]
                                    (is (= [] docs) "open again, after a deletion")))
+                    #(forget! name))))))
+
+(deftest a-cache-in-indexeddb
+  #?(:clj  (is true)
+     :cljs (if-not (exists? js/indexedDB)
+             (is true "no IndexedDB here")
+             (let [name (fresh-name)
+                   c    {:store     (indexeddb/store name)
+                         :prefix    "search."
+                         :max-count 1}]
+               (run #(cache/put! c [:apple "history"] ["one"] t0)
+                    #(async/then (cache/fetch! c [:apple "history"] t0)
+                                 (fn [kept] (is (= ["one"] (:value kept)))))
+                    #(cache/put! c [:apple "music"] ["two"] t1)
+                    #(async/then (cache/fetch! c [:apple "history"] t1)
+                                 (fn [kept]
+                                   (is (nil? kept) "dropped past the count")))
+                    #(async/then (cache/clear! c)
+                                 (fn [cleared] (is (= 1 (count cleared)))))
                     #(forget! name))))))
