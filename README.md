@@ -84,8 +84,9 @@ state say what it is. Give them to the backend and to each sync:
 ```
 
 The `:device` of a state names its document, so make it once for each
-installation and keep it, e.g. with `(str (random-uuid))`. It has to be
-a plain file name, and `sync!` throws without one.
+installation and keep it. The `device` namespace makes a random one, and
+in a browser, its `id!` keeps it in localStorage, apart from the state.
+It has to be a plain file name, and `sync!` throws without one.
 
 The step writes `phone.edn` into the folder. A laptop that syncs through
 the same folder writes `laptop.edn`, and merges in the phone's notes:
