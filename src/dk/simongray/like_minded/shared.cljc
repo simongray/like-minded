@@ -92,9 +92,8 @@
                       (-> retried
                           (assoc :state merged)
                           (update :report #(into (vec report) %))))))))))]
-    (let [state (document/without-replica state)]
-      (if (or (:newer? cursor)
-              (:other-kind? cursor)
-              (= (hash state) (:hash cursor)))
-        {:cursor cursor}
-        (put-conditionally state cursor 3)))))
+    (if (or (:newer? cursor)
+            (:other-kind? cursor)
+            (= (hash state) (:hash cursor)))
+      {:cursor cursor}
+      (put-conditionally state cursor 3))))
