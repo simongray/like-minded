@@ -211,38 +211,13 @@ where the common WebDAV servers and sync clients keep their folders.
 Tabs and workers
 ----------------
 
-The tabs and workers of a web app write one device's state at the same
-time, in the storage they share, e.g. IndexedDB. Without care, one tab's
-save writes over another's, and with one device id between them, one
-would lose the counts of the other. In ClojureScript,
-`dk.simongray.like-minded.replica` makes each a replica of the device of
-its own, with its state in an atom:
-
-```clojure
-(require '[dk.simongray.like-minded.replica :as replica])
-
-(def kind
-  (replica/document-kind "state.edn" {:schema schema}))
-
-(.then (replica/open! {:state  app
-                       :path   [:state]
-                       :store  (indexeddb/store "my-app")
-                       :device device
-                       :kind   kind})
-       #(reset! the-replica %))
-
-(replica/save! @the-replica)  ; after each change
-```
-
-The replica takes a name of its own as a Web Lock, which the browser lets
-go when the tab closes, and the next tab takes the name again. A save
-first catches up with what the others saved, with mind-meld's `rebase`,
-and then tells them, and each catches up as it hears that, and when its
-page is visible again. The saves of a store take turns across the tabs,
-and a save asked for while another waits its turn is that one, so save as
-often as the state changes. A state of another shape takes a kind of its
-own, a map of the functions that read, write and catch it up, as
-`replica/open!` describes.
+The tabs and workers of a web app share one device's storage, e.g.
+IndexedDB, so give them one device id, and write the state as `swap!`
+changes an atom. Put it with the `:if-version` that you last read, and
+when the put returns `{:conflict? true}`, fetch the stored state, apply
+your change to it and put again. The [store
+contract](doc/reference.md#the-store-contract) says how a put checks the
+version.
 
 Caching
 -------

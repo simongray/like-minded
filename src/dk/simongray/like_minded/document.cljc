@@ -79,19 +79,12 @@
   [doc opts]
   (str/ends-with? (:name doc) (extension opts)))
 
-(defn without-replica
-  "The `state` as the other devices read it, without the replica of
-  mind-meld that writes it, which only its own context knows."
-  [state]
-  (dissoc state :replica))
-
 (defn encode
   "The document of `state` written at `at` with the options of the state
   `opts`, encoded by their codec.
 
   It's an envelope with the version of the state's format, the device,
-  the state without its replica, and the :app and :kind of `opts`, if
-  any."
+  the state, and the :app and :kind of `opts`, if any."
   ([state at]
    (encode state at {}))
   ([state at {:keys [app kind codec] :or {codec edn-codec} :as opts}]
@@ -99,7 +92,7 @@
    (let [envelope (cond-> {:version    (:version opts version)
                            :device     (:device state)
                            :written-at (time/date at)
-                           :state      (without-replica state)}
+                           :state      state}
                     app  (assoc :app app)
                     kind (assoc :kind kind))]
      ((:encode codec) envelope))))

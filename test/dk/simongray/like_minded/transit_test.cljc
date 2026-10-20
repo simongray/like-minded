@@ -18,7 +18,6 @@
     (is (nil? (decode nil)))
     (let [opts {:codec  transit/codec
                 :schema {:notes {:depth 1} :plays {:depth 2 :count-key :n}}}]
-      (is (= state (:state (document/decode (document/encode (assoc state :replica "phone/1")
-                                                             #inst "2026-10-09T09:02:00Z" opts)
+      (is (= state (:state (document/decode (document/encode state #inst "2026-10-09T09:02:00Z" opts)
                                             opts)))
-          "as the codec of the documents of a sync, which leave out the replica"))))
+          "as the codec of the documents of a sync"))))
