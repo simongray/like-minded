@@ -48,7 +48,7 @@ It requires Clojure 1.11+ and Java 11+. Add it from
 your `deps.edn`:
 
 ```clojure
-dk.simongray/like-minded {:mvn/version "0.8.0"}
+dk.simongray/like-minded {:mvn/version "0.9.0"}
 ```
 
 For unreleased changes, depend on the latest commit on `master` instead.
