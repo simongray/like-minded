@@ -1,4 +1,4 @@
-(ns dk.simongray.like-minded.device
+(ns ^:runtime dk.simongray.like-minded.device
   "The id of a device, which names the device's document, made once for
   each installation and kept, so that the device goes on writing the same
   document.

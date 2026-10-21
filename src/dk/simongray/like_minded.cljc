@@ -1,4 +1,4 @@
-(ns dk.simongray.like-minded
+(ns ^:runtime dk.simongray.like-minded
   "Syncing a state of mind-meld between a user's devices, through any
   number of backends.
 

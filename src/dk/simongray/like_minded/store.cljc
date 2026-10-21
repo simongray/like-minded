@@ -1,4 +1,4 @@
-(ns dk.simongray.like-minded.store
+(ns ^:runtime dk.simongray.like-minded.store
   "Document stores, which keep named documents with versions, e.g. the
   sync documents of a user's devices, or anything else an app saves.
 
