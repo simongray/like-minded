@@ -37,7 +37,9 @@
                           #inst "2026-01-01T04:00:01Z"))
         "those past the age")
     (is (= ["a1"] (cache/dropped {} entries t3))
-        "without limits, only the older value of a key")))
+        "without limits, only the older value of a key")
+    (is (= ["c" "a2"] (cache/dropped {} entries t1))
+        "and those kept later, as by a clock that was ahead, but for the value kept before")))
 
 (deftest keeping-a-value
   (let [s (store/memory)
@@ -60,7 +62,15 @@
          #(async/then (cache/fetch! c [:apple "history"]
                                     #inst "2026-01-01T03:00:01Z")
                       (fn [kept]
-                        (is (nil? kept) "a value past its age, before it's dropped"))))))
+                        (is (nil? kept) "a value past its age, before it's dropped")))
+         #(cache/put! c [:apple "history"] ["ahead"] t3)
+         #(async/then (cache/fetch! c [:apple "history"] t2)
+                      (fn [kept]
+                        (is (nil? kept) "a value kept later, as by a clock that was ahead")))
+         #(cache/put! c [:apple "history"] ["three"] t2)
+         #(async/then (cache/fetch! c [:apple "history"] t2)
+                      (fn [kept]
+                        (is (= ["three"] (:value kept)) "which a value kept now replaces"))))))
 
 (deftest the-limits
   (let [s (store/memory)

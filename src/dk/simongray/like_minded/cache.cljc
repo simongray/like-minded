@@ -60,19 +60,23 @@
 
 (defn expired?
   "Whether the `entry` is older than the :max-seconds of the `cache` at the
-  instant `at`."
+  instant `at`, or was kept after `at`, as by a clock that was ahead."
   [{:keys [max-seconds]} entry at]
-  (boolean (and max-seconds (> (age entry at) max-seconds))))
+  (let [seconds (age entry at)]
+    (or (neg? seconds)
+        (boolean (and max-seconds (> seconds max-seconds))))))
 
 (defn dropped
   "The names of the `entries` of the `cache` that go at the instant `at`:
-  those older than its :max-seconds, those of a key with a newer one, and
-  the oldest past its :max-count."
+  those that expired, those of a key with a newer one, and the oldest past
+  its :max-count."
   [{:keys [max-count] :as cache} entries at]
   (let [newest  (sort-by #(- (inst-ms (:at %))) entries)
-        current (->> (vals (group-by :hash newest))
-                     (map first)
+        current (->> newest
                      (remove #(expired? cache % at))
+                     (group-by :hash)
+                     vals
+                     (map first)
                      (sort-by #(- (inst-ms (:at %)))))
         kept    (into #{}
                       (map :name)
