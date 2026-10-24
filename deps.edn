@@ -5,7 +5,7 @@
  ;; the WebDAV store and serves a store over WebDAV, and wary-fetch sends
  ;; the requests.
  :deps  {org.clojure/clojure     {:mvn/version "1.11.4"}
-         dk.simongray/wary-fetch {:mvn/version "0.12.0"}
+         dk.simongray/wary-fetch {:mvn/version "0.16.0"}
          dk.simongray/webdav-clj {:mvn/version "0.1.1"}
          dk.simongray/mind-meld  {:mvn/version "0.6.0"}}
 
@@ -23,8 +23,8 @@
   ;; clojure -M:cljs compile test          (the tests in Node)
   ;; clojure -M:cljs compile browser-test  (the tests in a browser)
   :cljs {:extra-paths   ["test" "test/resources"]
-         :override-deps {org.clojure/clojure {:mvn/version "1.12.5"}}
-         :extra-deps    {thheller/shadow-cljs        {:mvn/version "3.5.3"}
+         :override-deps {org.clojure/clojure {:mvn/version "1.12.6"}}
+         :extra-deps    {thheller/shadow-cljs        {:mvn/version "3.5.7"}
                          com.cognitect/transit-cljs  {:mvn/version "0.8.280"}}
          :main-opts     ["-m" "shadow.cljs.devtools.cli"]}
 
