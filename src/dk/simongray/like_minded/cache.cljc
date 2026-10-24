@@ -60,7 +60,7 @@
 
 (defn expired?
   "Whether the `entry` is older than the :max-seconds of the `cache` at the
-  instant `at`, or was kept after `at`, as by a clock that was ahead."
+  instant `at`, or was kept after `at`, e.g. by a clock that was ahead."
   [{:keys [max-seconds]} entry at]
   (let [seconds (age entry at)]
     (or (neg? seconds)
@@ -68,8 +68,8 @@
 
 (defn dropped
   "The names of the `entries` of the `cache` that go at the instant `at`:
-  those that expired, those of a key with a newer one, and the oldest past
-  its :max-count."
+  those that expired, those of a key with a newer one that hasn't expired,
+  and the oldest past its :max-count."
   [{:keys [max-count] :as cache} entries at]
   (let [newest  (sort-by #(- (inst-ms (:at %))) entries)
         current (->> newest
@@ -108,8 +108,8 @@
   "The value that the `cache` keeps under the key `k` at the instant `at`,
   now by default, as a map of the :value and the :at that it was kept.
 
-  It's nil when the cache keeps none, or none younger than its
-  :max-seconds. A document that doesn't decode counts as none."
+  It's nil when the cache keeps none that hasn't expired. A document that
+  doesn't decode counts as none."
   ([cache k]
    (fetch! cache k (time/now)))
   ([{:keys [store codec] :or {codec document/edn-codec} :as cache} k at]
