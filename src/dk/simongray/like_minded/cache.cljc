@@ -104,6 +104,41 @@
                   (async/then (async/all (:delete store) names)
                               (constantly names))))))
 
+(defn fetch-all!
+  "The values that the `cache` keeps under the keys `ks` at the instant
+  `at`, now by default, as a map of each key to a map of the :value and
+  the :at that it was kept.
+
+  It lists the store once for all the keys, e.g. for the values that a
+  page shows as it opens. A key that the cache keeps no value of that
+  hasn't expired is left out, and so is one whose document doesn't
+  decode."
+  ([cache ks]
+   (fetch-all! cache ks (time/now)))
+  ([{:keys [store codec] :or {codec document/edn-codec} :as cache} ks at]
+   (async/then
+    (async/all [(async/all hashed ks) ((:list store))])
+    (fn [[hs listed]]
+      (let [newest (->> (entries cache listed)
+                        (remove #(expired? cache % at))
+                        (reduce (fn [m {h :hash :as entry}]
+                                  (cond-> m (not (contains? m h)) (assoc h entry)))
+                                {}))
+            found  (keep (fn [[k h]] (some->> (newest h) (vector k)))
+                         (map vector ks hs))]
+        (async/then
+         (async/all (fn [[k entry]]
+                      (async/then ((:fetch store) (:name entry) {})
+                                  (fn [doc]
+                                    (when doc
+                                      (try
+                                        [k {:value ((:decode codec) (:body doc))
+                                            :at    (:at entry)}]
+                                        (catch #?(:clj Exception :cljs :default) _
+                                          nil))))))
+                    found)
+         #(into {} (remove nil?) %)))))))
+
 (defn fetch!
   "The value that the `cache` keeps under the key `k` at the instant `at`,
   now by default, as a map of the :value and the :at that it was kept.
@@ -112,22 +147,8 @@
   doesn't decode counts as none."
   ([cache k]
    (fetch! cache k (time/now)))
-  ([{:keys [store codec] :or {codec document/edn-codec} :as cache} k at]
-   (async/then
-    (async/all [(hashed k) ((:list store))])
-    (fn [[h listed]]
-      (when-let [entry (->> (entries cache listed)
-                            (filter #(= h (:hash %)))
-                            (remove #(expired? cache % at))
-                            first)]
-        (async/then ((:fetch store) (:name entry) {})
-                    (fn [doc]
-                      (when doc
-                        (try
-                          {:value ((:decode codec) (:body doc))
-                           :at    (:at entry)}
-                          (catch #?(:clj Exception :cljs :default) _
-                            nil))))))))))
+  ([cache k at]
+   (async/then (fetch-all! cache [k] at) #(get % k))))
 
 (defn put!
   "Keep the value `v` under the key `k` in the `cache` at the instant `at`,

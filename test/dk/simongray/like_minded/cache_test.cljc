@@ -72,6 +72,27 @@
                       (fn [kept]
                         (is (= ["three"] (:value kept)) "which a value kept now replaces"))))))
 
+(deftest the-values-of-several-keys
+  (let [s     (store/memory)
+        lists (atom 0)
+        c     {:store       (update s :list (fn [f] (fn [& args] (swap! lists inc) (apply f args))))
+               :prefix      "x."
+               :max-seconds 7200}]
+    (run #(cache/put! c "a" 1 t0)
+         #(cache/put! c "b" 2 t1)
+         #(async/then (cache/hashed "odd")
+                      (fn [h]
+                        ((:put s) (cache/document-name c h t1) "{:a" {})))
+         #(reset! lists 0)
+         #(async/then (cache/fetch-all! c ["a" "b" "c" "odd"] t1)
+                      (fn [kept]
+                        (is (= {"a" {:value 1 :at t0} "b" {:value 2 :at t1}} kept)
+                            "but for a key it never kept and a document that doesn't decode")
+                        (is (= 1 @lists) "from one listing of the store")))
+         #(async/then (cache/fetch-all! c ["a" "b"] #inst "2026-01-01T02:30:00Z")
+                      (fn [kept]
+                        (is (= {"b" {:value 2 :at t1}} kept) "nor a value past its age"))))))
+
 (deftest the-limits
   (let [s (store/memory)
         c {:store s :prefix "x." :max-count 2 :max-seconds 7200}]
