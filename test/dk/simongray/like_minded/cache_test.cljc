@@ -84,12 +84,12 @@
                       (fn [h]
                         ((:put s) (cache/document-name c h t1) "{:a" {})))
          #(reset! lists 0)
-         #(async/then (cache/fetch-all! c ["a" "b" "c" "odd"] t1)
+         #(async/then (cache/fetch-keys! c ["a" "b" "c" "odd"] t1)
                       (fn [kept]
                         (is (= {"a" {:value 1 :at t0} "b" {:value 2 :at t1}} kept)
                             "but for a key it never kept and a document that doesn't decode")
                         (is (= 1 @lists) "from one listing of the store")))
-         #(async/then (cache/fetch-all! c ["a" "b"] #inst "2026-01-01T02:30:00Z")
+         #(async/then (cache/fetch-keys! c ["a" "b"] #inst "2026-01-01T02:30:00Z")
                       (fn [kept]
                         (is (= {"b" {:value 2 :at t1}} kept) "nor a value past its age"))))))
 

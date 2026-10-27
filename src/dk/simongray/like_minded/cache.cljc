@@ -104,7 +104,7 @@
                   (async/then (async/all (:delete store) names)
                               (constantly names))))))
 
-(defn fetch-all!
+(defn fetch-keys!
   "The values that the `cache` keeps under the keys `ks` at the instant
   `at`, now by default, as a map of each key to a map of the :value and
   the :at that it was kept.
@@ -114,18 +114,16 @@
   hasn't expired is left out, and so is one whose document doesn't
   decode."
   ([cache ks]
-   (fetch-all! cache ks (time/now)))
+   (fetch-keys! cache ks (time/now)))
   ([{:keys [store codec] :or {codec document/edn-codec} :as cache} ks at]
    (async/then
     (async/all [(async/all hashed ks) ((:list store))])
     (fn [[hs listed]]
-      (let [newest (->> (entries cache listed)
-                        (remove #(expired? cache % at))
-                        (reduce (fn [m {h :hash :as entry}]
-                                  (cond-> m (not (contains? m h)) (assoc h entry)))
-                                {}))
-            found  (keep (fn [[k h]] (some->> (newest h) (vector k)))
-                         (map vector ks hs))]
+      (let [by-hash (->> (entries cache listed)
+                         (remove #(expired? cache % at))
+                         (group-by :hash))
+            found   (keep (fn [[k h]] (some->> (first (by-hash h)) (vector k)))
+                          (map vector ks hs))]
         (async/then
          (async/all (fn [[k entry]]
                       (async/then ((:fetch store) (:name entry) {})
@@ -148,7 +146,7 @@
   ([cache k]
    (fetch! cache k (time/now)))
   ([cache k at]
-   (async/then (fetch-all! cache [k] at) #(get % k))))
+   (async/then (fetch-keys! cache [k] at) #(get % k))))
 
 (defn put!
   "Keep the value `v` under the key `k` in the `cache` at the instant `at`,
